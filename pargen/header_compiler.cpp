@@ -266,7 +266,7 @@ compileHeader (File *file,
 	    if (decl->declaration_type != Declaration::_Phrases)
 		continue;
 
-	    Declaration_Phrases * const &decl_phrases = static_cast <Declaration_Phrases const *> (decl.ptr ());
+	    Declaration_Phrases const * const &decl_phrases = static_cast <Declaration_Phrases const *> (decl.ptr ());
 
 	    if (decl_phrases->is_alias)
 		continue;
