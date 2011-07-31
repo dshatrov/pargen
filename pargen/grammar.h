@@ -343,6 +343,8 @@ public:
 
     VSlabRef<Acceptor> createAcceptorFor (ParserElement *compound_element)
     {
+	// TODO If assignment_func is NULL, then there's probably no need
+	// in allocating the acceptor at all.
 	VSlabRef<Acceptor> acceptor = VSlabRef<Acceptor>::forRef <Acceptor> (acceptor_slab.alloc ());
 	acceptor->init (assignment_func, compound_element);
 	return acceptor;

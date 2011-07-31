@@ -36,14 +36,15 @@
  * one of the most unusual pieces of code. Take it as it is :)
  */
 
+// Parsing trace, should be always enabled.
+// Enabled/disabled by parsing_state->debug_dump flag.
+#define DEBUG_PAR(a) a
 
 #define DEBUG(a) ;
 // Flow
 #define DEBUG_FLO(a) ;
 // Internal
 #define DEBUG_INT(a) ;
-// Parsing
-#define DEBUG_PAR(a) a
 // Callbacks
 #define DEBUG_CB(a) ;
 // Optimization
@@ -633,7 +634,8 @@ namespace {
 		errf->print (_func_name).print (": "
 			     "el_vstack: 0x").printHex ((Size) el_vstack).print (", "
 			     "step_vstack: 0x").printHex ((Size) &step_vstack).pendl ();
-		errf->print (_func_name).print (": CompoundGrammarEntry::acceptor_slab vstack: 0x").printHex ((Size) &CompoundGrammarEntry::acceptor_slab.vstack).pendl ();
+		errf->print (_func_name).print (": CompoundGrammarEntry::acceptor_slab vstack: "
+			     "0x").printHex ((Size) &CompoundGrammarEntry::acceptor_slab.vstack).pendl ();
 	    )
 	}
     };
@@ -1297,7 +1299,9 @@ parse_sequence_match (ParsingState         *parsing_state,
 
 //    Ref<Acceptor> acceptor = grab (static_cast <Acceptor*> (new ListAcceptor<ParserElement> (&step->parser_elements)));
 //    VSlab< ListAcceptor<ParserElement> >::Ref * const acceptor = parsing_state->list_acceptor_slab.alloc ();
-    VSlabRef< ListAcceptor<ParserElement> > acceptor = VSlabRef< ListAcceptor<ParserElement> >::forRef < ListAcceptor<ParserElement> > (parsing_state->list_acceptor_slab.alloc ());
+    VSlabRef< ListAcceptor<ParserElement> > acceptor =
+	    VSlabRef< ListAcceptor<ParserElement> >::forRef < ListAcceptor<ParserElement> > (
+		    parsing_state->list_acceptor_slab.alloc ());
 //    VSlabRef< ListAcceptor<ParserElement> > acceptor (parsing_state->list_acceptor_slab.alloc ());
     acceptor->init (&step->parser_elements);
     for (;;) {
@@ -1554,8 +1558,13 @@ parse_compound_match (ParsingState         *parsing_state,
 
 // TODO FIXME (explain)
 //	    if (!empty_match)
-	    if (!step->acceptor.isNull ())
+	    if (!step->acceptor.isNull ()) {
+		DEBUG (
+		    errf->print ("parse_compound_match: calling setParserElement(): "
+				 "0x").printHex ((Uint64) step->parser_element).pendl ();
+		)
 		step->acceptor->setParserElement (step->parser_element);
+	    }
 	}
 
 	DEBUG (
@@ -1588,10 +1597,17 @@ parse_switch_final_match (ParsingState *parsing_state,
     }
 #endif
 
-    if (!empty_match) {
-	if (!step->acceptor.isNull ())
+// Wrong condition? We should set parser elements for empty matches as well.
+// Otherwise, "key = ;" yields NULL 'value' field in mconfig.
+//    if (!empty_match) {
+	if (!step->acceptor.isNull ()) {
+	    DEBUG_INT (
+		errf->print ("Pargen.(Parser).parse_switch_final_match: calling setParserElement(): "
+			     "0x").printHex ((Uint64) step->parser_element).pendl ();
+	    )
 	    step->acceptor->setParserElement (step->parser_element);
-    }
+	}
+//    }
 
     pop_step (parsing_state, true /* match */, empty_match);
 }
@@ -1611,7 +1627,9 @@ parse_switch_match (ParsingState       *parsing_state,
 	     (empty_match && !match));
 
     DEBUG_INT (
-      errf->print ("Pargen.parse_switch_match").pendl ();
+      errf->print ("Pargen.parse_switch_match, step->parser_element: "
+		   "0x").printHex ((Uint64) step->parser_element).print (", "
+		   "step->nlr_parser_element: 0x").printHex ((Uint64) step->nlr_parser_element).pendl ();
     );
 
     switch (step->state) {
@@ -1628,6 +1646,11 @@ parse_switch_match (ParsingState       *parsing_state,
 	      // to the next non-left-recursive subgrammar.
 
 		step->got_empty_nlr_match = true;
+
+		DEBUG_INT (
+		    errf->print ("Pargen.(Parser).parse_switch_match (NLR, empty): "
+				 "calling parse_switch_no_match_yet()").pendl ();
+		)
 		parse_switch_no_match_yet (parsing_state, step);
 	    } else {
 	      // We've got a non-empty match. Let's try parsing left-recursive grammars,
@@ -1636,7 +1659,8 @@ parse_switch_match (ParsingState       *parsing_state,
 		if (match) {
 		    if (step->grammar->accept_func != NULL) {
 			DEBUG_CB (
-			    errf->print ("Pargen.(Parser).parse_switch_match: calling accept_func (NLR, non-empty)").pendl ();
+			    errf->print ("Pargen.(Parser).parse_switch_match: "
+					 "calling accept_func (NLR, non-empty)").pendl ();
 			)
 			step->grammar->accept_func (step->nlr_parser_element,
 						    parsing_state,
@@ -1648,6 +1672,11 @@ parse_switch_match (ParsingState       *parsing_state,
 
 		step->state = ParsingStep_Switch::State_LR;
 		step->cur_lr_el = static_cast <Grammar_Switch*> (step->grammar)->grammar_entries.first;
+
+		DEBUG_INT (
+		    errf->print ("Pargen.(Parser).parse_switch_match (NLR, non-empty): "
+				 "calling parse_switch_no_match_yet()").pendl ();
+		)
 		parse_switch_no_match_yet (parsing_state, step);
 	    }
 	} break;
@@ -1659,6 +1688,10 @@ parse_switch_match (ParsingState       *parsing_state,
 	      // has an empty tail, hence the match is not recursive at all.
 	      // Moving on to the next left-recursive grammar.
 
+		DEBUG_INT (
+		    errf->print ("Pargen.(Parser).parse_switch_match (LR, empty): "
+				 "calling parse_switch_no_match_yet()").pendl ();
+		)
 		parse_switch_no_match_yet (parsing_state, step);
 		return;
 	    }
@@ -1928,6 +1961,10 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		errf->print ("Pargen.parse_switch_no_match_yet: NLR").pendl ();
 	    )
 
+	    // Workaround for the unfortunate side effect of acceptor initialization:
+	    // it nullifies the target pointer.
+	    ParserElement *tmp_nlr_parser_element = step->nlr_parser_element;
+
 #ifndef VSLAB_ACCEPTOR
 	    Ref<Acceptor> nlr_acceptor =
 		    grab (static_cast <Acceptor*> (new RefAcceptor<ParserElement> (&step->nlr_parser_element)));
@@ -1937,9 +1974,12 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 			    parsing_state->ptr_acceptor_slab.alloc ());
 	    nlr_acceptor->init (&step->nlr_parser_element);
 	    DEBUG_INT (
-		errf->print ("Pargen.parse_switch_no_match_yet: NLR: acceptor: 0x").printHex ((Uint64) (Acceptor*) nlr_acceptor).pendl ();
+		errf->print ("Pargen.parse_switch_no_match_yet: NLR: acceptor: "
+			     "0x").printHex ((Uint64) (Acceptor*) nlr_acceptor).pendl ();
 	    )
 #endif
+
+	    step->nlr_parser_element = tmp_nlr_parser_element;
 
 	    bool got_new_step = false;
 	    while (step->cur_nlr_el != NULL) {
@@ -2028,6 +2068,11 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		  // We've got an empty match. It cannot be used for handling left-recursive grammars,
 		  // so we just accept it.
 
+		    DEBUG_INT (
+			errf->print ("Pargen.(Parser).parse_switch_no_match_yet: "
+				     "empty NLR match, step->nlr_parser_element: "
+				     "0x").printHex ((Uint64) step->nlr_parser_element).pendl ();
+		    )
 		    step->parser_element = step->nlr_parser_element;
 
 		    if (step->grammar->accept_func != NULL) {
@@ -2071,7 +2116,8 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 			    parsing_state->ptr_acceptor_slab.alloc ());
 	    lr_acceptor->init (&step->parser_element);
 	    DEBUG_INT (
-		errf->print ("Pargen.parse_switch_no_match_yet: LR: acceptor: 0x").printHex ((Uint64) (Acceptor*) lr_acceptor).pendl ();
+		errf->print ("Pargen.parse_switch_no_match_yet: "
+			     "LR: acceptor: 0x").printHex ((Uint64) (Acceptor*) lr_acceptor).pendl ();
 	    )
 #endif
 
