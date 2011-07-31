@@ -1597,7 +1597,7 @@ parse_switch_final_match (ParsingState *parsing_state,
     }
 #endif
 
-// Wrong condition? We should set parser elements for empty matches as well.
+// Wrong condition. We should set parser elements for empty matches as well.
 // Otherwise, "key = ;" yields NULL 'value' field in mconfig.
 //    if (!empty_match) {
 	if (!step->acceptor.isNull ()) {
