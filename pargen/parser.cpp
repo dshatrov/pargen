@@ -533,10 +533,16 @@ namespace {
 	{
 	public:
 	    TokenStream::PositionMarker token_stream_pos;
-	    Ref<ParsingStep_Compound> compound_step;
+// VSTACK	    Ref<ParsingStep_Compound> compound_step;
+	    ParsingStep_Compound *compound_step;
 	    List< Ref<CompoundGrammarEntry> >::Element *cur_subg_el;
 	    Bool got_nonoptional_match;
 	    Size go_right_count;
+
+	    PositionMarker ()
+		: compound_step (NULL)
+	    {
+	    }
 	};
 
 	Ref<ParserConfig> parser_config;
@@ -688,7 +694,8 @@ namespace {
 
 	Size total_go_right = 0;
 	{
-	    ParsingStep * const mark_step = static_cast <ParsingStep*> (pmark->compound_step.ptr ());
+// VSTACK	    ParsingStep * const mark_step = static_cast <ParsingStep*> (pmark->compound_step.ptr ());
+	    ParsingStep * const mark_step = static_cast <ParsingStep*> (pmark->compound_step);
 	    for (;;) {
 		ParsingStep * const cur_step = step_list.getLast();
 		if (cur_step == mark_step)
