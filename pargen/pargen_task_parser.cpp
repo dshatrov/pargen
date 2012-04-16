@@ -759,12 +759,12 @@ parsePhrase (TokenStream *token_stream,
 
 	    // FIXME Sane automatic phrase names
 	    switch (phrase_part->phrase_part_type) {
-		case PhrasePart::_Phrase: {
+		case PhrasePart::t_Phrase: {
 		    PhrasePart_Phrase * const &phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 		    abortIf (phrase_part__phrase->name.isNull ());
 		    phrase_record->phrase->phrase_name = capitalizeName (phrase_part__phrase->name->getMemoryDesc ());
 		} break;
-		case PhrasePart::_Token: {
+		case PhrasePart::t_Token: {
 		    PhrasePart_Token * const &phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
 		    if (phrase_part__token->token.isNull ()) {
 			phrase_record->phrase->phrase_name = String::forData ("Any");
@@ -773,13 +773,13 @@ parsePhrase (TokenStream *token_stream,
 			phrase_record->phrase->phrase_name = capitalizeName (phrase_part__token->token->getMemoryDesc ());
 		    }
 		} break;
-		case PhrasePart::_AcceptCb: {
+		case PhrasePart::t_AcceptCb: {
 		    phrase_record->phrase->phrase_name = String::forData ("AcceptCb");
 		} break;
-		case PhrasePart::_UniversalAcceptCb: {
+		case PhrasePart::t_UniversalAcceptCb: {
 		    phrase_record->phrase->phrase_name = String::forData ("UniversalAcceptCb");
 		} break;
-		case PhrasePart::_UpwardsAnchor: {
+		case PhrasePart::t_UpwardsAnchor: {
 		    phrase_record->phrase->phrase_name = String::forData ("UpwardsAnchor");
 		} break;
 		default:
@@ -1030,7 +1030,7 @@ linkPhrases (Declaration_Phrases *decl_phrases,
 	List< Ref<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
 	while (!phrase_part_iter.done ()) {
 	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
-	    if (phrase_part->phrase_part_type == PhrasePart::_Phrase) {
+	    if (phrase_part->phrase_part_type == PhrasePart::t_Phrase) {
 		PhrasePart_Phrase * const &phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 		abortIf (phrase_part__phrase->phrase_name.isNull ());
 		if (phrase_part__phrase->decl_phrases == NULL) {
@@ -1112,7 +1112,7 @@ linkAliases (PargenTask * const pargen_task,
     List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
     while (!decl_iter.done ()) {
 	Ref<Declaration> &decl = decl_iter.next ();
-	if (decl->declaration_type != Declaration::_Phrases)
+	if (decl->declaration_type != Declaration::t_Phrases)
 	    continue;
 
 	Declaration_Phrases &decl_phrases = static_cast <Declaration_Phrases&> (*decl);
@@ -1311,7 +1311,7 @@ namespace {
 		    depth ++;
 
 		    switch (phrase_part->phrase_part_type) {
-			case PhrasePart::_Phrase: {
+			case PhrasePart::t_Phrase: {
 			    PhrasePart_Phrase * const phrase_part__phrase =
 				    static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 
@@ -1382,7 +1382,7 @@ namespace {
 				)
 			    }
 			} break;
-			case PhrasePart::_UpwardsAnchor: {
+			case PhrasePart::t_UpwardsAnchor: {
 			    PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
 				    static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
 
@@ -1467,7 +1467,7 @@ namespace {
 
 #if 0
 		if (!jump_path->jumps.isEmpty () &&
-		    jump_path->jumps.last->data->getType () == Jump::_Push)
+		    jump_path->jumps.last->data->getType () == Jump::t_Push)
 		{
 		    jump_path->jumps.remove (jump_path->jumps.last);
 		} else {
@@ -1501,7 +1501,7 @@ linkUpwardsAnchors (PargenTask * const pargen_task)
     List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
     while (!decl_iter.done ()) {
 	Ref<Declaration> &decl = decl_iter.next ();
-	if (decl->declaration_type != Declaration::_Phrases)
+	if (decl->declaration_type != Declaration::t_Phrases)
 	    continue;
 
 	DEBUG_ANCHORS(
@@ -1590,7 +1590,7 @@ linkUpwardsAnchors (PargenTask * const pargen_task)
 
 		    bool break_part_loop = false;
 		    switch (phrase_part->phrase_part_type) {
-			case PhrasePart::_Phrase: {
+			case PhrasePart::t_Phrase: {
 			    PhrasePart_Phrase * const phrase_part__phrase =
 				    static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 
@@ -1641,7 +1641,7 @@ linkUpwardsAnchors (PargenTask * const pargen_task)
 				)
 			    }
 			} break;
-			case PhrasePart::_UpwardsAnchor: {
+			case PhrasePart::t_UpwardsAnchor: {
 			    PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
 				    static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
 
@@ -1755,7 +1755,7 @@ linkUpwardsAnchors_linkAnchor (LookupData               * const lookup_data,
 		errf->print ("    ").print (phrase_part->toString ()).pendl ();
 
 		switch (phrase_part->phrase_part_type) {
-		    case PhrasePart::_Label: {
+		    case PhrasePart::t_Label: {
 			PhrasePart_Label * const phrase_part__label =
 				static_cast <PhrasePart_Label*> (phrase_part.ptr ());
 
@@ -1823,7 +1823,7 @@ linkUpwardsAnchors (PargenTask * const pargen_task,
     List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
     while (!decl_iter.done ()) {
 	Ref<Declaration> &decl = decl_iter.next ();
-	if (decl->declaration_type != Declaration::_Phrases)
+	if (decl->declaration_type != Declaration::t_Phrases)
 	    continue;
 
 	Declaration_Phrases * const decl_phrases = static_cast <Declaration_Phrases*> (decl.ptr ());
@@ -1837,7 +1837,7 @@ linkUpwardsAnchors (PargenTask * const pargen_task,
 		Ref<PhrasePart> &phrase_part = part_iter.next ();
 
 		switch (phrase_part->phrase_part_type) {
-		    case PhrasePart::_UpwardsAnchor: {
+		    case PhrasePart::t_UpwardsAnchor: {
 			PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
 				static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
 
@@ -1875,16 +1875,16 @@ parsePargenTask (TokenStream *token_stream)
 	    break;
 
 	switch (decl->declaration_type) {
-	    case Declaration::_Phrases: {
+	    case Declaration::t_Phrases: {
 		Declaration_Phrases * const &decl_phrases = static_cast <Declaration_Phrases*> (decl.ptr ());
 		pargen_task->decls.append (decl_phrases);
 	    } break;
-	    case Declaration::_Callbacks: {
+	    case Declaration::t_Callbacks: {
 		Declaration_Callbacks * const &decl_callbacks = static_cast <Declaration_Callbacks*> (decl.ptr ());
 		decls_callbacks.add (decl_callbacks);
 	    } break;
 #if 0
-	    case Declaration::_Alias: {
+	    case Declaration::t_Alias: {
 		Declaration_Alias * const decl_alias = static_cast <Declaration_Alias*> (decl.ptr ());
 		pargen_task->decls.append (decl_alias);
 	    } break;
@@ -1900,7 +1900,7 @@ parsePargenTask (TokenStream *token_stream)
     List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
     while (!decl_iter.done ()) {
 	Ref<Declaration> &decl = decl_iter.next ();
-	if (decl->declaration_type != Declaration::_Phrases)
+	if (decl->declaration_type != Declaration::t_Phrases)
 	    continue;
 
 	Declaration_Phrases &decl_phrases = static_cast <Declaration_Phrases&> (*decl);

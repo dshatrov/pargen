@@ -72,10 +72,10 @@ public:
 			      void          *data);
 
     enum Type {
-	_Immediate,
-	_Compound,
-	_Switch,
-	_Alias
+	t_Immediate,
+	t_Compound,
+	t_Switch,
+	t_Alias
     };
 
     const Type grammar_type;
@@ -132,7 +132,7 @@ public:
 			void                  *user_data) = 0;
 
     Grammar_Immediate ()
-	: Grammar (Grammar::_Immediate)
+	: Grammar (Grammar::t_Immediate)
     {
 #if 0
 	elem_creation_func = NULL;
@@ -420,7 +420,7 @@ public:
     }
 
     Grammar_Compound (ElementCreationFunc elem_creation_func)
-	: Grammar (Grammar::_Compound)
+	: Grammar (Grammar::t_Compound)
     {
 	this->elem_creation_func = elem_creation_func;
     }
@@ -436,7 +436,7 @@ public:
     Ref<String> toString ();
 
     Grammar_Switch ()
-	: Grammar (Grammar::_Switch)
+	: Grammar (Grammar::t_Switch)
     {
     }
 };
@@ -455,7 +455,7 @@ public:
     }
 
     Grammar_Alias ()
-	: Grammar (Grammar::_Alias)
+	: Grammar (Grammar::t_Alias)
     {
     }
 };

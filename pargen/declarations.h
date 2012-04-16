@@ -32,9 +32,9 @@ class Declaration : public SimplyReferenced
 {
 public:
     enum Type {
-	_Phrases,
-	_Callbacks
-//	_Alias
+	t_Phrases,
+	t_Callbacks
+//	t_Alias
     };
 
     const Type declaration_type;
@@ -101,7 +101,7 @@ public:
 	    callbacks;
 
     Declaration_Phrases ()
-	: Declaration (Declaration::_Phrases),
+	: Declaration (Declaration::t_Phrases),
 	  aliased_decl (NULL),
 	  loop_id (0),
 	  decl_loop_id (0)
@@ -131,12 +131,12 @@ class PhrasePart : public SimplyReferenced
 {
 public:
     enum Type {
-	_Phrase,
-	_Token,
-	_AcceptCb,
-	_UniversalAcceptCb,
-	_UpwardsAnchor,
-	_Label
+	t_Phrase,
+	t_Token,
+	t_AcceptCb,
+	t_UniversalAcceptCb,
+	t_UpwardsAnchor,
+	t_Label
     };
 
     const Type phrase_part_type;
@@ -168,7 +168,7 @@ public:
     Ref<Declaration_Phrases> decl_phrases;
 
     PhrasePart_Phrase ()
-	: PhrasePart (PhrasePart::_Phrase)
+	: PhrasePart (PhrasePart::t_Phrase)
     {
     }
 };
@@ -187,7 +187,7 @@ public:
     Ref<String> token_match_cb;
 
     PhrasePart_Token ()
-	: PhrasePart (PhrasePart::_Token)
+	: PhrasePart (PhrasePart::t_Token)
     {
     }
 };
@@ -205,7 +205,7 @@ public:
     Bool repetition;
 
     PhrasePart_AcceptCb ()
-	: PhrasePart (PhrasePart::_AcceptCb)
+	: PhrasePart (PhrasePart::t_AcceptCb)
     {
     }
 };
@@ -223,7 +223,7 @@ public:
     Bool repetition;
 
     PhrasePart_UniversalAcceptCb ()
-	: PhrasePart (PhrasePart::_UniversalAcceptCb)
+	: PhrasePart (PhrasePart::t_UniversalAcceptCb)
     {
     }
 };
@@ -246,7 +246,7 @@ public:
     Size compound_grammar_index;
 
     PhrasePart_UpwardsAnchor ()
-	: PhrasePart (PhrasePart::_UpwardsAnchor),
+	: PhrasePart (PhrasePart::t_UpwardsAnchor),
 	  switch_grammar_index (0),
 	  compound_grammar_index (0)
     {
@@ -265,7 +265,7 @@ public:
     Ref<String> label_name;
 
     PhrasePart_Label ()
-	: PhrasePart (PhrasePart::_Label)
+	: PhrasePart (PhrasePart::t_Label)
     {
     }
 };
@@ -279,7 +279,7 @@ public:
     List< Ref<CallbackDecl> > callbacks;
 
     Declaration_Callbacks ()
-	: Declaration (Declaration::_Callbacks)
+	: Declaration (Declaration::t_Callbacks)
     {
     }
 };
@@ -294,7 +294,7 @@ public:
     Ref<String> aliased_name;
 
     Declaration_Alias ()
-	: Declaration (Declaration::_Alias)
+	: Declaration (Declaration::t_Alias)
     {
     }
 };

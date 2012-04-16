@@ -107,10 +107,10 @@ namespace {
 					void          *user_data);
 
 	enum Type {
-	    _Sequence,
-	    _Compound,
-	    _Switch,
-	    _Alias
+	    t_Sequence,
+	    t_Compound,
+	    t_Switch,
+	    t_Alias
 	};
 
 	const Type parsing_step_type;
@@ -157,7 +157,7 @@ namespace {
 	List<ParserElement*> parser_elements;
 
 	ParsingStep_Sequence ()
-	    : ParsingStep (ParsingStep::_Sequence)
+	    : ParsingStep (ParsingStep::t_Sequence)
 	{
 	}
     };
@@ -184,7 +184,7 @@ namespace {
 	Bool got_nonoptional_match;
 
 	ParsingStep_Compound ()
-	    : ParsingStep (ParsingStep::_Compound),
+	    : ParsingStep (ParsingStep::t_Compound),
 	      jump_grammar (NULL),
 	      jump_cb (NULL),
 	      jump_switch_grammar_entry (NULL),
@@ -218,7 +218,7 @@ namespace {
 	ParserElement *parser_element;
 
 	ParsingStep_Switch ()
-	    : ParsingStep (ParsingStep::_Switch),
+	    : ParsingStep (ParsingStep::t_Switch),
 	      nlr_parser_element (NULL),
 	      parser_element (NULL)
 	{
@@ -231,7 +231,7 @@ namespace {
 	ParserElement *parser_element;
 
 	ParsingStep_Alias ()
-	    : ParsingStep (ParsingStep::_Alias),
+	    : ParsingStep (ParsingStep::t_Alias),
 	      parser_element (NULL)
 	{
 	}
@@ -650,7 +650,7 @@ namespace {
     ParsingState::getPosition ()
     {
 	ParsingStep &parsing_step = getLastStep ();
-	abortIf (parsing_step.parsing_step_type != ParsingStep::_Compound);
+	abortIf (parsing_step.parsing_step_type != ParsingStep::t_Compound);
 	ParsingStep_Compound *compound_step = static_cast <ParsingStep_Compound*> (&parsing_step);
 
 	Ref<PositionMarker> pmark = grab (new PositionMarker);
@@ -791,19 +791,19 @@ push_step (ParsingState * const parsing_state,
 
 	    ParsingStep &_step = parsing_state->getLastStep ();
 	    switch (_step.parsing_step_type) {
-		case ParsingStep::_Sequence: {
+		case ParsingStep::t_Sequence: {
 		    ParsingStep_Sequence &step = static_cast <ParsingStep_Sequence&> (_step);
 		    errf->print ("(seq) ").print (step.grammar->toString ());
 		} break;
-		case ParsingStep::_Compound: {
+		case ParsingStep::t_Compound: {
 		    ParsingStep_Compound &step = static_cast <ParsingStep_Compound&> (_step);
 		    errf->print ("(com) ").print (step.grammar->toString ());
 		} break;
-		case ParsingStep::_Switch: {
+		case ParsingStep::t_Switch: {
 		    ParsingStep_Switch &step = static_cast <ParsingStep_Switch&> (_step);
 		    errf->print ("(swi) ").print (step.grammar->toString ());
 		} break;
-		case ParsingStep::_Alias: {
+		case ParsingStep::t_Alias: {
 		    errf->print ("(alias)");
 		}
 	    }
@@ -844,19 +844,19 @@ pop_step (ParsingState *parsing_state,
 
 	    ParsingStep &_step = parsing_state->getLastStep ();
 	    switch (_step.parsing_step_type) {
-		case ParsingStep::_Sequence: {
+		case ParsingStep::t_Sequence: {
 		    ParsingStep_Sequence &step = static_cast <ParsingStep_Sequence&> (_step);
 		    errf->print ("(seq) ").print (step.grammar->toString ());
 		} break;
-		case ParsingStep::_Compound: {
+		case ParsingStep::t_Compound: {
 		    ParsingStep_Compound &step = static_cast <ParsingStep_Compound&> (_step);
 		    errf->print ("(com) ").print (step.grammar->toString ());
 		} break;
-		case ParsingStep::_Switch: {
+		case ParsingStep::t_Switch: {
 		    ParsingStep_Switch &step = static_cast <ParsingStep_Switch&> (_step);
 		    errf->print ("(swi) ").print (step.grammar->toString ());
 		} break;
-		case ParsingStep::_Alias: {
+		case ParsingStep::t_Alias: {
 		    errf->print ("(alias)");
 		} break;
 	    }
@@ -1168,7 +1168,7 @@ parse_grammar (ParsingState *parsing_state,
 #endif
 
     switch (_grammar->grammar_type) {
-	case Grammar::_Immediate: {
+	case Grammar::t_Immediate: {
 	    DEBUG_INT (
 	      errf->print (_func_name).print (": Grammar::_Immediate").pendl ();
 	    );
@@ -1211,7 +1211,7 @@ parse_grammar (ParsingState *parsing_state,
 	    return ParseNoMatch;
 	} break;
 
-	case Grammar::_Compound: {
+	case Grammar::t_Compound: {
 	    DEBUG_INT (
 	      errf->print (_func_name).print (": Grammar::_Compound").pendl ();
 	    );
@@ -1228,7 +1228,7 @@ parse_grammar (ParsingState *parsing_state,
 				NULL  /* cur_subg_el */);
 	} break;
 
-	case Grammar::_Switch: {
+	case Grammar::t_Switch: {
 	    DEBUG_INT (
 	      errf->print (_func_name).print (": Grammar::_Switch").pendl ();
 	    );
@@ -1238,7 +1238,7 @@ parse_grammar (ParsingState *parsing_state,
 	    push_switch_step (parsing_state, grammar, acceptor, optional, NULL /* cur_subg_el */);
 	} break;
 
-	case Grammar::_Alias: {
+	case Grammar::t_Alias: {
 	    DEBUG_INT (
 		errf->print (_func_name).print (": Grammar::_Alias").pendl ();
 	    )
@@ -1350,7 +1350,7 @@ parse_compound_no_match (ParsingState         *parsing_state,
 	    }
 
 #if 0
-	    abortIf (step->jump_grammar->grammar_type != Grammar::_Switch);
+	    abortIf (step->jump_grammar->grammar_type != Grammar::t_Switch);
 	    Grammar_Switch * const grammar__switch = static_cast <Grammar_Switch*> (step->jump_grammar);
 
 	    push_switch_step (parsing_state,
@@ -1361,7 +1361,7 @@ parse_compound_no_match (ParsingState         *parsing_state,
 #endif
 
 	    SwitchGrammarEntry * const switch_ge = step->jump_switch_grammar_entry->data;
-	    abortIf (switch_ge->grammar->grammar_type != Grammar::_Compound);
+	    abortIf (switch_ge->grammar->grammar_type != Grammar::t_Compound);
 	    Grammar_Compound * const grammar__compound = static_cast <Grammar_Compound*> (switch_ge->grammar.ptr ());
 
 	    push_compound_step (parsing_state,
@@ -1428,7 +1428,7 @@ parse_compound_match (ParsingState         *parsing_state,
 	    step->jump_grammar = entry.jump_grammar;
 	    step->jump_cb = entry.jump_cb;
 
-	    abortIf (entry.jump_grammar->grammar_type != Grammar::_Switch);
+	    abortIf (entry.jump_grammar->grammar_type != Grammar::t_Switch);
 	    Grammar_Switch * const grammar__switch = static_cast <Grammar_Switch*> (entry.jump_grammar);
 
 	    if (entry.jump_switch_grammar_entry == NULL) {
@@ -1438,7 +1438,7 @@ parse_compound_match (ParsingState         *parsing_state,
 	    step->jump_switch_grammar_entry = entry.jump_switch_grammar_entry;
 
 	    SwitchGrammarEntry * const switch_ge = entry.jump_switch_grammar_entry->data;
-	    abortIf (switch_ge->grammar->grammar_type != Grammar::_Compound);
+	    abortIf (switch_ge->grammar->grammar_type != Grammar::t_Compound);
 	    Grammar_Compound * const grammar__compound = static_cast <Grammar_Compound*> (switch_ge->grammar.ptr ());
 
 	    if (entry.jump_compound_grammar_entry == NULL &&
@@ -1904,11 +1904,13 @@ static void
 parse_switch_no_match_yet (ParsingState       * const parsing_state,
 			   ParsingStep_Switch * const step)
 {
+  DEBUG_FLO (
     static char const * const _func_name = "Pargen.Parser.parse_switch_no_match_yet";
+  )
 
     DEBUG_FLO (
       errf->print (_func_name).pendl ();
-    );
+    )
 
     abortIf (parsing_state == NULL);
     abortIf (step == NULL);
@@ -2006,7 +2008,7 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		// I suppose that the better option is to give up on detecting left-recursive
 		// grammars for the cases where subgrammar is not a compound one. For pargen-generated
 		// grammars this means we're never giving up :)
-		if (entry.grammar->grammar_type == Grammar::_Compound) {
+		if (entry.grammar->grammar_type == Grammar::t_Compound) {
 		    DEBUG (
 			errf->print ("Pargen.parse_switch_no_match_yet: NLR: _Compound").pendl ();
 		    )
@@ -2137,7 +2139,7 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		SwitchGrammarEntry &entry = step->cur_lr_el->data.der ();
 		step->cur_lr_el = step->cur_lr_el->next;
 
-		if (entry.grammar->grammar_type != Grammar::_Compound)
+		if (entry.grammar->grammar_type != Grammar::t_Compound)
 		    continue;
 
 		if (!is_cur_variant (parsing_state, entry))
@@ -2374,7 +2376,7 @@ parse_up (ParsingState *parsing_state)
     ParsingStep &_step = parsing_state->getLastStep ();
 
     switch (_step.parsing_step_type) {
-	case ParsingStep::_Sequence: {
+	case ParsingStep::t_Sequence: {
 	    DEBUG_INT (
 	      errf->print (_func_name).print (": ParsingStep::_Sequence").pendl ();
 	    );
@@ -2382,7 +2384,7 @@ parse_up (ParsingState *parsing_state)
 
 	    parse_sequence_match (parsing_state, &step);
 	} break;
-	case ParsingStep::_Compound: {
+	case ParsingStep::t_Compound: {
 	    DEBUG_INT (
 	      errf->print (_func_name).print (": ParsingStep::_Compound").pendl ();
 	    );
@@ -2402,7 +2404,7 @@ parse_up (ParsingState *parsing_state)
 
 	    parse_compound_match (parsing_state, &step, true /* empty_match */);
 	} break;
-	case ParsingStep::_Switch: {
+	case ParsingStep::t_Switch: {
 	    DEBUG_INT (
 	      errf->print (_func_name).print (": ParsingStep::_Switch").pendl ();
 	    );
@@ -2414,7 +2416,7 @@ parse_up (ParsingState *parsing_state)
 
 	    parse_switch_no_match_yet (parsing_state, &step);
 	} break;
-	case ParsingStep::_Alias: {
+	case ParsingStep::t_Alias: {
 	    DEBUG_INT (
 		errf->print (_func_name).print (": ParsingStep::_Alias").pendl ();
 	    )
@@ -2439,7 +2441,7 @@ parse_down (ParsingState *parsing_state)
     ParsingStep &_step = parsing_state->getLastStep ();
 
     switch (_step.parsing_step_type) {
-	case ParsingStep::_Sequence: {
+	case ParsingStep::t_Sequence: {
 	    DEBUG_INT (
 	      errf->print ("Pargen.parse_down: ParsingStep::_Sequence").pendl ();
 	    );
@@ -2451,7 +2453,7 @@ parse_down (ParsingState *parsing_state)
 	    else
 		parse_sequence_no_match (parsing_state, &step);
 	} break;
-	case ParsingStep::_Compound: {
+	case ParsingStep::t_Compound: {
 	    DEBUG_INT (
 	      errf->print ("Pargen.parse_down: ParsingStep::_Compound").pendl ();
 	    );
@@ -2463,7 +2465,7 @@ parse_down (ParsingState *parsing_state)
 	    else
 		parse_compound_no_match (parsing_state, &step);
 	} break;
-	case ParsingStep::_Switch: {
+	case ParsingStep::t_Switch: {
 	    DEBUG_INT (
 	      errf->print ("Pargen.parse_down: ParsingStep::_Switch").pendl ();
 	    );
@@ -2475,7 +2477,7 @@ parse_down (ParsingState *parsing_state)
 	    else
 		parse_switch_no_match_yet (parsing_state, &step);
 	} break;
-	case ParsingStep::_Alias: {
+	case ParsingStep::t_Alias: {
 	    DEBUG_INT (
 		errf->print ("Pargen.parse_down: ParsingStep::_Alias").pendl ();
 	    )
@@ -2583,7 +2585,7 @@ do_optimizeGrammar (Grammar                      * const grammar            /* n
     }
 
     switch (grammar->grammar_type) {
-	case Grammar::_Immediate: {
+	case Grammar::t_Immediate: {
 	    Grammar_Immediate_SingleToken * const grammar__immediate =
 		    static_cast <Grammar_Immediate_SingleToken*> (grammar);
 
@@ -2615,7 +2617,7 @@ do_optimizeGrammar (Grammar                      * const grammar            /* n
 
 	    return true;
 	} break;
-	case Grammar::_Compound: {
+	case Grammar::t_Compound: {
 	    Grammar_Compound * const grammar__compound =
 		    static_cast <Grammar_Compound*> (grammar);
 
@@ -2660,7 +2662,7 @@ do_optimizeGrammar (Grammar                      * const grammar            /* n
 
 	    return got_tranzition;
 	} break;
-	case Grammar::_Switch: {
+	case Grammar::t_Switch: {
 	    Grammar_Switch * const grammar__switch =
 		    static_cast <Grammar_Switch*> (grammar);
 
@@ -2715,7 +2717,7 @@ do_optimizeGrammar (Grammar                      * const grammar            /* n
 
 	    return got_tranzition;
 	} break;
-	case Grammar::_Alias: {
+	case Grammar::t_Alias: {
 	    Grammar_Alias * const grammar_alias =
 		    static_cast <Grammar_Alias*> (grammar);
 
@@ -2779,7 +2781,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
     }
 
     switch (grammar->grammar_type) {
-	case Grammar::_Immediate: {
+	case Grammar::t_Immediate: {
 	    Grammar_Immediate_SingleToken * const grammar__immediate =
 		    static_cast <Grammar_Immediate_SingleToken*> (grammar);
 
@@ -2831,7 +2833,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
 
 	    return true;
 	} break;
-	case Grammar::_Compound: {
+	case Grammar::t_Compound: {
 	    Grammar_Compound * const grammar__compound =
 		    static_cast <Grammar_Compound*> (grammar);
 
@@ -2880,7 +2882,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
 
 	    return got_tranzition;
 	} break;
-	case Grammar::_Switch: {
+	case Grammar::t_Switch: {
 	    Grammar_Switch * const grammar__switch =
 		    static_cast <Grammar_Switch*> (grammar);
 
@@ -2942,7 +2944,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
 
 	    return got_tranzition;
 	} break;
-	case Grammar::_Alias: {
+	case Grammar::t_Alias: {
 	    Grammar_Alias * const grammar_alias =
 		    static_cast <Grammar_Alias*> (grammar);
 

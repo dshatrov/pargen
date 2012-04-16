@@ -71,7 +71,7 @@ compileSource_Phrase (File *file,
 	while (!phrase_part_iter.done ()) {
 	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
-	    if (phrase_part->phrase_part_type == PhrasePart::_AcceptCb) {
+	    if (phrase_part->phrase_part_type == PhrasePart::t_AcceptCb) {
 		PhrasePart_AcceptCb *phrase_part__accept_cb = static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr ());
 		if (phrase_part__accept_cb->repetition)
 		    continue;
@@ -89,7 +89,7 @@ compileSource_Phrase (File *file,
 			   "    ").out (opts->capital_header_name).out ("Element * const &_el =\n"
 			   "            static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n"
 			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != "
-				    ).out (opts->capital_header_name).out ("Element::_").out (decl_name).out (");\n"
+				    ).out (opts->capital_header_name).out ("Element::t_").out (decl_name).out (");\n"
 			   "\n"
 			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" * const &el =\n"
 			   "            static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("*> (_el);\n"
@@ -101,7 +101,7 @@ compileSource_Phrase (File *file,
 		continue;
 	    }
 
-	    if (phrase_part->phrase_part_type == PhrasePart::_UniversalAcceptCb) {
+	    if (phrase_part->phrase_part_type == PhrasePart::t_UniversalAcceptCb) {
 		PhrasePart_UniversalAcceptCb *phrase_part__universal_accept_cb = static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr ());
 		if (phrase_part__universal_accept_cb->repetition)
 		    continue;
@@ -126,7 +126,7 @@ compileSource_Phrase (File *file,
 		continue;
 	    }
 
-	    if (phrase_part->phrase_part_type == PhrasePart::_UpwardsAnchor) {
+	    if (phrase_part->phrase_part_type == PhrasePart::t_UpwardsAnchor) {
 		PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
 			static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
 
@@ -140,7 +140,7 @@ compileSource_Phrase (File *file,
 		continue;
 	    }
 
-	    if (phrase_part->phrase_part_type == PhrasePart::_Label) {
+	    if (phrase_part->phrase_part_type == PhrasePart::t_Label) {
 	      // TODO
 		continue;
 	    }
@@ -148,7 +148,7 @@ compileSource_Phrase (File *file,
 	    const char *name_to_set;
 	    const char *type_to_set;
 	    bool any_token = false;
-	    if (phrase_part->phrase_part_type == PhrasePart::_Token) {
+	    if (phrase_part->phrase_part_type == PhrasePart::t_Token) {
 		PhrasePart_Token *phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
 		if (phrase_part__token->token.isNull () ||
 		    phrase_part__token->token->getLength () == 0)
@@ -161,7 +161,7 @@ compileSource_Phrase (File *file,
 		    continue;
 		}
 	    } else {
-		abortIf (phrase_part->phrase_part_type != PhrasePart::_Phrase);
+		abortIf (phrase_part->phrase_part_type != PhrasePart::t_Phrase);
 		
 		PhrasePart_Phrase * const &phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 
@@ -191,11 +191,11 @@ compileSource_Phrase (File *file,
 	    }
 
 	    file->out ("\n"
-		       "    abortIf (__self->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::_").out (decl_name);
+		       "    abortIf (__self->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (decl_name);
 		       
 	    if (!any_token) {
 		file->out (" ||\n"
-			   "             __el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::_").out (type_to_set);
+			   "             __el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (type_to_set);
 	    }
 	    
 	    file->out (");\n"
@@ -204,7 +204,7 @@ compileSource_Phrase (File *file,
 	    if (subtype) {
 		file->out ("    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" * const &_self = static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("*> (__self);\n"
 			   "\n"
-			   "    abortIf (_self->").out (lowercase_decl_name).out ("_type").out (" != ").out (opts->capital_header_name).out ("_").out (decl_name).out ("::_").out (phrase_name).out (");\n"
+			   "    abortIf (_self->").out (lowercase_decl_name).out ("_type").out (" != ").out (opts->capital_header_name).out ("_").out (decl_name).out ("::t_").out (phrase_name).out (");\n"
 			   "\n"
 			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase_name).out (" * const &self = static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase_name).out ("*> (_self);\n"
 			   "\n");
@@ -263,7 +263,7 @@ compileSource_Phrase (File *file,
 	while (!phrase_part_iter.done ()) {
 	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
-	    if (phrase_part->phrase_part_type == PhrasePart::_Label)
+	    if (phrase_part->phrase_part_type == PhrasePart::t_Label)
 		continue;
 
 	    file->out ("    {\n"
@@ -276,7 +276,7 @@ compileSource_Phrase (File *file,
 		file->out ("        entry->flags |= CompoundGrammarEntry::Sequence;\n");
 
 	    switch (phrase_part->phrase_part_type) {
-		case PhrasePart::_Phrase: {
+		case PhrasePart::t_Phrase: {
 		    PhrasePart_Phrase * const &phrase_part__phrase =
 			    static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 
@@ -287,7 +287,7 @@ compileSource_Phrase (File *file,
 						).out (opts->header_name).out ("_").out (phrase_prefix).out (
 						"_set_").out (phrase_part__phrase->name).out (";\n");
 		} break;
-		case PhrasePart::_Token: {
+		case PhrasePart::t_Token: {
 		    PhrasePart_Token * const &phrase_part__token =
 			    static_cast <PhrasePart_Token*> (phrase_part.ptr ());
 
@@ -322,19 +322,19 @@ compileSource_Phrase (File *file,
 						    "_set_").out ("any_token").out (";\n");
 		    }
 		} break;
-		case PhrasePart::_AcceptCb: {
+		case PhrasePart::t_AcceptCb: {
 		    PhrasePart_AcceptCb * const &phrase_part__match_cb =
 			    static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr ());
 
 		    file->out ("        entry->inline_match_func = __pargen_").out (phrase_part__match_cb->cb_name).out (";\n");
 		} break;
-		case PhrasePart::_UniversalAcceptCb: {
+		case PhrasePart::t_UniversalAcceptCb: {
 		    PhrasePart_UniversalAcceptCb * const &phrase_part__match_cb =
 			    static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr ());
 
 		    file->out ("        entry->inline_match_func = __pargen_").out (phrase_part__match_cb->cb_name).out (";\n");
 		} break;
-		case PhrasePart::_UpwardsAnchor: {
+		case PhrasePart::t_UpwardsAnchor: {
 		    PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
 			    static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
 
@@ -349,7 +349,7 @@ compileSource_Phrase (File *file,
 			       "        entry->jump_compound_grammar_index = "
 						).out (phrase_part__upwards_anchor->compound_grammar_index).out (";\n");
 		} break;
-		case PhrasePart::_Label: {
+		case PhrasePart::t_Label: {
 		    abortIfReached ();
 		} break;
 		default:
@@ -399,7 +399,7 @@ compileSource_Phrase (File *file,
 	while (!phrase_part_iter.done ()) {
 	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
 	    switch (phrase_part->phrase_part_type) {
-		case PhrasePart::_Phrase: {
+		case PhrasePart::t_Phrase: {
 		    PhrasePart_Phrase * const &phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 
 		    if (phrase_part->seq) {
@@ -426,7 +426,7 @@ compileSource_Phrase (File *file,
 				   "\n");
 		    }
 		} break;
-		case PhrasePart::_Token: {
+		case PhrasePart::t_Token: {
 		    PhrasePart_Token * const &phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
 
 		    if (!global_grammar)
@@ -441,16 +441,16 @@ compileSource_Phrase (File *file,
 		    }
 		    file->out ("\\n\");\n");
 		} break;
-		case PhrasePart::_AcceptCb: {
+		case PhrasePart::t_AcceptCb: {
 		  // No-op
 		} break;
-		case PhrasePart::_UniversalAcceptCb: {
+		case PhrasePart::t_UniversalAcceptCb: {
 		  // No-op
 		} break;
-		case PhrasePart::_UpwardsAnchor: {
+		case PhrasePart::t_UpwardsAnchor: {
 		  // No-op
 		} break;
-		case PhrasePart::_Label: {
+		case PhrasePart::t_Label: {
 		  // No-op
 		} break;
 		default:
@@ -475,17 +475,17 @@ compileSource_Alias (File *file,
 
     abortIf (!decl_phrases->is_alias);
 
-    const char *decl_name;
-    const char *lowercase_decl_name;
+//    const char *decl_name;
+//    const char *lowercase_decl_name;
     bool global_grammar;
     abortIf (decl->declaration_name.isNull ());
     if (compareStrings (decl->declaration_name->getData (), "*")) {
-	decl_name = "Grammar";
-	lowercase_decl_name = "grammar";
+//	decl_name = "Grammar";
+//	lowercase_decl_name = "grammar";
 	global_grammar = true;
     } else {
-	decl_name = decl->declaration_name->getData ();
-	lowercase_decl_name = decl->lowercase_declaration_name->getData ();
+//	decl_name = decl->declaration_name->getData ();
+//	lowercase_decl_name = decl->lowercase_declaration_name->getData ();
 	global_grammar = false;
     }
 
@@ -590,7 +590,7 @@ compileSource (File *file,
 	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	while (!decl_iter.done ()) {
 	    Ref<Declaration> &decl = decl_iter.next ();
-	    if (decl->declaration_type != Declaration::_Phrases)
+	    if (decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
 	    if (compareStrings (decl->declaration_name->getData (), "*"))
@@ -607,7 +607,7 @@ compileSource (File *file,
 	while (!decl_iter.done ()) {
 	    Ref<Declaration> &decl = decl_iter.next ();
 
-	    if (decl->declaration_type != Declaration::_Phrases)
+	    if (decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
 	    Declaration_Phrases * const decl_phrases = static_cast <Declaration_Phrases*> (decl.ptr ());
@@ -652,7 +652,7 @@ compileSource (File *file,
 			   "        void *data)\n"
 			   "{\n"
 			   "    ").out (opts->capital_header_name).out ("Element * const &_el = static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n"
-			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::_").out (elem_name).out (");\n"
+			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (elem_name).out (");\n"
 			   "\n"
 			   "    ").out (opts->capital_header_name).out ("_").out (elem_name).out (" * const &el = static_cast <").out (opts->capital_header_name).out ("_").out (elem_name).out ("*> (_el);\n"
 			   "\n"
@@ -680,7 +680,7 @@ compileSource (File *file,
 			   "    }\n"
 			   "\n"
 			   "    ").out (opts->capital_header_name).out ("Element * const &_el = static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n"
-			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::_").out (elem_name).out (");\n"
+			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (elem_name).out (");\n"
 			   "\n"
 			   "    ").out (opts->capital_header_name).out ("_").out (elem_name).out (" * const &el = static_cast <").out (opts->capital_header_name).out ("_").out (elem_name).out ("*> (_el);\n"
 			   "\n"
@@ -784,7 +784,7 @@ compileSource (File *file,
 			Ref<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
 			Phrase *phrase = phrase_record->phrase;
 
-			file->out ("        case ").out (opts->capital_header_name).out ("_").out (decl_name).out ("::_").out (phrase->phrase_name).out (":\n"
+			file->out ("        case ").out (opts->capital_header_name).out ("_").out (decl_name).out ("::t_").out (phrase->phrase_name).out (":\n"
 				   "            dump_").out (opts->header_name).out ("_").out (decl_name).out ("_").out (phrase->phrase_name).out (" (static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase->phrase_name).out (" const *> (el), ").out (global_grammar ? "0" : "nest_level + 0").out (");\n"
 				   "            break;\n");
 		    }

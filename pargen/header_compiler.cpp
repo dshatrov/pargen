@@ -54,13 +54,13 @@ compileHeader_Phrase_External (File                                    * const f
 	Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
 	switch (phrase_part->phrase_part_type) {
-	    case PhrasePart::_Phrase: {
+	    case PhrasePart::t_Phrase: {
 	      // No-op
 	    } break;
-	    case PhrasePart::_Token: {
+	    case PhrasePart::t_Token: {
 	      // No-op
 	    } break;
-	    case PhrasePart::_AcceptCb: {
+	    case PhrasePart::t_AcceptCb: {
 		PhrasePart_AcceptCb *phrase_part__accept_cb =
 			static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr ());
 		if (phrase_part__accept_cb->repetition)
@@ -72,7 +72,7 @@ compileHeader_Phrase_External (File                                    * const f
 			   "        void *data);\n"
 			   "\n");
 	    } break;
-	    case PhrasePart::_UniversalAcceptCb: {
+	    case PhrasePart::t_UniversalAcceptCb: {
 		PhrasePart_UniversalAcceptCb *phrase_part__universal_accept_cb =
 			static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr ());
 		if (phrase_part__universal_accept_cb->repetition)
@@ -84,10 +84,10 @@ compileHeader_Phrase_External (File                                    * const f
 			   "        void *data);\n"
 			   "\n");
 	    } break;
-	    case PhrasePart::_UpwardsAnchor: {
+	    case PhrasePart::t_UpwardsAnchor: {
 	      // No-op
 	    } break;
-	    case PhrasePart::_Label: {
+	    case PhrasePart::t_Label: {
 	      // No-op
 	    } break;
 	    default:
@@ -115,7 +115,7 @@ compileHeader_Phrase (File                                    * const file,
 	Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
 	switch (phrase_part->phrase_part_type) {
-	    case PhrasePart::_Phrase: {
+	    case PhrasePart::t_Phrase: {
 		PhrasePart_Phrase *phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
 
 		if (phrase_part__phrase->seq) {
@@ -134,7 +134,7 @@ compileHeader_Phrase (File                                    * const file,
 		    }
 		}
 	    } break;
-	    case PhrasePart::_Token: {
+	    case PhrasePart::t_Token: {
 		PhrasePart_Token *phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
 
 		if (phrase_part__token->token.isNull () ||
@@ -147,16 +147,16 @@ compileHeader_Phrase (File                                    * const file,
 		    }
 		}
 	    } break;
-	    case PhrasePart::_AcceptCb: {
+	    case PhrasePart::t_AcceptCb: {
 	      // No-op
 	    } break;
-	    case PhrasePart::_UniversalAcceptCb: {
+	    case PhrasePart::t_UniversalAcceptCb: {
 	      // No-op
 	    } break;
-	    case PhrasePart::_UpwardsAnchor: {
+	    case PhrasePart::t_UpwardsAnchor: {
 	      // No-op
 	    } break;
-	    case PhrasePart::_Label: {
+	    case PhrasePart::t_Label: {
 	      // No-op
 	    } break;
 	    default:
@@ -204,7 +204,7 @@ compileHeader (File *file,
 	Bool decl_iter_started;
 	while (!decl_iter.done ()) {
 	    Ref<Declaration> &_decl = decl_iter.next ();
-	    if (_decl->declaration_type != Declaration::_Phrases)
+	    if (_decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
 	    Declaration_Phrases const * const decl = static_cast <Declaration_Phrases const *> (_decl.ptr ());
@@ -221,9 +221,9 @@ compileHeader (File *file,
 
 	    if (compareStrings (decl->declaration_name->getData (), "*")) {
 		got_global_grammar = true;
-		file->out ("        _Grammar");
+		file->out ("        t_Grammar");
 	    } else
-		file->out ("        _").out (decl->declaration_name);
+		file->out ("        t_").out (decl->declaration_name);
 	}
     }
 
@@ -243,7 +243,7 @@ compileHeader (File *file,
 	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	while (!decl_iter.done ()) {
 	    Ref<Declaration> &_decl = decl_iter.next ();
-	    if (_decl->declaration_type != Declaration::_Phrases)
+	    if (_decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
 	    Declaration_Phrases const * const decl = static_cast <Declaration_Phrases const *> (_decl.ptr ()); 
@@ -263,7 +263,7 @@ compileHeader (File *file,
 	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	while (!decl_iter.done ()) {
 	    Ref<Declaration> &decl = decl_iter.next ();
-	    if (decl->declaration_type != Declaration::_Phrases)
+	    if (decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
 	    Declaration_Phrases const * const &decl_phrases = static_cast <Declaration_Phrases const *> (decl.ptr ());
@@ -317,7 +317,7 @@ compileHeader (File *file,
 			else
 			    phrase_name = phrase->phrase_name;
 
-			file->out ("        _").out (phrase_name);
+			file->out ("        t_").out (phrase_name);
 		    }
 		}
 
@@ -328,7 +328,7 @@ compileHeader (File *file,
 			   "\n"
 			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" (Type type)\n"
 			   "        : ").out (opts->capital_header_name).out ("Element ("
-					       ).out (opts->capital_header_name).out ("Element::_").out (decl_name).out ("),\n"
+					       ).out (opts->capital_header_name).out ("Element::t_").out (decl_name).out ("),\n"
 			   "          ").out (lowercase_decl_name).out ("_type (type)\n"
 			   "    {\n"
 			   "    }\n"
@@ -366,7 +366,7 @@ compileHeader (File *file,
 				   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase_name).out (" ()\n"
 				   "        : ").out (opts->capital_header_name).out ("_").out (decl_name).out (" ("
 						    ).out (opts->capital_header_name).out ("_").out (decl_name).out ("::"
-							    "_").out (phrase_name).out (")\n");
+							    "t_").out (phrase_name).out (")\n");
 
 			compileHeader_Phrase (file,
 					      phrase_record,
@@ -390,7 +390,7 @@ compileHeader (File *file,
 		file->out ("\n"
 			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" ()\n"
 			   "        : ").out (opts->capital_header_name).out ("Element ("
-					    ).out (opts->capital_header_name).out ("Element::_").out (decl_name).out (")\n");
+					    ).out (opts->capital_header_name).out ("Element::t_").out (decl_name).out (")\n");
 
 		if (decl_phrases->phrases.first != NULL)
 		    compileHeader_Phrase (file,

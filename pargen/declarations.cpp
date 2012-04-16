@@ -29,13 +29,13 @@ Ref<String>
 PhrasePart::toString ()
 {
     switch (phrase_part_type) {
-	case PhrasePart::_Phrase: {
+	case PhrasePart::t_Phrase: {
 	    PhrasePart_Phrase * const phrase_part__phrase =
 		    static_cast <PhrasePart_Phrase*> (this);
 
 	    return String::forPrintTask (Pr << "Phrase " << phrase_part__phrase->phrase_name);
 	} break;
-	case PhrasePart::_Token: {
+	case PhrasePart::t_Token: {
 	    PhrasePart_Token * const phrase_part__token =
 		    static_cast <PhrasePart_Token*> (this);
 
@@ -44,19 +44,19 @@ PhrasePart::toString ()
 
 	    return String::forPrintTask (Pr << "Token [" << phrase_part__token->token << "]");
 	} break;
-	case PhrasePart::_AcceptCb: {
+	case PhrasePart::t_AcceptCb: {
 	    PhrasePart_AcceptCb * const phrase_part__accept_cb =
 		    static_cast <PhrasePart_AcceptCb*> (this);
 
 	    return String::forPrintTask (Pr << "AcceptCb " << phrase_part__accept_cb->cb_name);
 	} break;
-	case PhrasePart::_UniversalAcceptCb: {
+	case PhrasePart::t_UniversalAcceptCb: {
 	    PhrasePart_UniversalAcceptCb * const phrase_part__universal_accept_cb =
 		    static_cast <PhrasePart_UniversalAcceptCb*> (this);
 
 	    return String::forPrintTask (Pr << "UniversalAcceptCb " << phrase_part__universal_accept_cb->cb_name);
 	} break;
-	case PhrasePart::_UpwardsAnchor: {
+	case PhrasePart::t_UpwardsAnchor: {
 	    PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
 		    static_cast <PhrasePart_UpwardsAnchor*> (this);
 
@@ -67,7 +67,7 @@ PhrasePart::toString ()
 					       "@" <<
 					       phrase_part__upwards_anchor->label_name);
 	} break;
-	case PhrasePart::_Label: {
+	case PhrasePart::t_Label: {
 	    PhrasePart_Label * const phrase_part__label =
 		    static_cast <PhrasePart_Label*> (this);
 
