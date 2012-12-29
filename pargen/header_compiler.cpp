@@ -185,7 +185,7 @@ compileHeader (File *file,
 	       "#include <pargen/parser_element.h>\n"
 	       "#include <pargen/grammar.h>\n"
 	       "\n"
-	       "namespace ").out (opts->capital_module_name).out (" {\n"
+	       "namespace ").out (opts->capital_namespace_name).out (" {\n"
 	       "\n"
 	       "class ").out (opts->capital_header_name).out ("Element : public Pargen::ParserElement\n"
 	       "{\n"

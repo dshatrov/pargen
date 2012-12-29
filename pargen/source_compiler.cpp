@@ -568,7 +568,7 @@ compileSource (File *file,
 	       "using namespace MyCpp;\n"
 	       "using namespace Pargen;\n"
 	       "\n"
-	       "namespace ").out (opts->capital_module_name).out (" {\n"
+	       "namespace ").out (opts->capital_namespace_name).out (" {\n"
 	       "\n"
 	       "static void\n"
 	       "print_whsp (File *file,\n"

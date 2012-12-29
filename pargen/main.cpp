@@ -47,6 +47,7 @@ using namespace Pargen;
 struct Options
 {
     Ref<String> module_name;
+    Ref<String> namespace_name;
     Ref<String> header_name;
 
     Bool extmode;
@@ -62,6 +63,7 @@ print_usage ()
     errf->print ("Usage: pargen [options] <file>\n"
 		 "Options:\n"
 		 "  --module-name\n"
+                 "  --namespace\n"
 		 "  --header-name\n"
 		 "  --extmode\n"
 		 "  -h, --help")
@@ -76,6 +78,17 @@ cmdline_module_name (const char * /* short_name */,
 		     void * /* callback_data */)
 {
     options.module_name = String::forData (value);
+    return true;
+}
+
+static bool
+cmdline_namespace_name (const char * /* short_name */,
+                        const char * /* long_name */,
+                        const char *value,
+                        void       * /* opt_data */,
+                        void       * /* callback_data */)
+{
+    options.namespace_name = String::forData (value);
     return true;
 }
 
@@ -131,7 +144,7 @@ int main (int argc, char **argv)
     myCppInit ();
 
     {
-	const Size num_opts = 4;
+	const Size num_opts = 5;
 	CmdlineOption opts [num_opts];
 
 	opts [0].short_name = NULL;
@@ -140,23 +153,29 @@ int main (int argc, char **argv)
 	opts [0].opt_data   = NULL;
 	opts [0].opt_callback = cmdline_module_name;
 
-	opts [1].short_name = NULL;
-	opts [1].long_name  = "header-name";
-	opts [1].with_value = true;
-	opts [1].opt_data   = NULL;
-	opts [1].opt_callback = cmdline_header_name;
+        opts [1].short_name = NULL;
+        opts [1].long_name  = "namespace";
+        opts [1].with_value = true;
+        opts [1].opt_data   = NULL;
+        opts [1].opt_callback = cmdline_namespace_name;
 
-	opts [2].short_name = "h";
-	opts [2].long_name  = "help";
-	opts [2].with_value = false;
+	opts [2].short_name = NULL;
+	opts [2].long_name  = "header-name";
+	opts [2].with_value = true;
 	opts [2].opt_data   = NULL;
-	opts [2].opt_callback = cmdline_help;
+	opts [2].opt_callback = cmdline_header_name;
 
-	opts [3].short_name = NULL;
-	opts [3].long_name  = "extmode";
+	opts [3].short_name = "h";
+	opts [3].long_name  = "help";
 	opts [3].with_value = false;
 	opts [3].opt_data   = NULL;
-	opts [3].opt_callback = cmdline_extmode;
+	opts [3].opt_callback = cmdline_help;
+
+	opts [4].short_name = NULL;
+	opts [4].long_name  = "extmode";
+	opts [4].with_value = false;
+	opts [4].opt_data   = NULL;
+	opts [4].opt_callback = cmdline_extmode;
 
 	ArrayIterator<CmdlineOption> opts_iter (opts, num_opts);
 	parseCmdline (&argc, &argv, opts_iter,
@@ -192,12 +211,15 @@ int main (int argc, char **argv)
 	    return EXIT_FAILURE;
 	}
 
-	if (options.module_name.isNull ()) {
+	if (options.module_name.isNull()) {
 	    errf->print ("Module name not specified").pendl ();
 	    return EXIT_FAILURE;
 	}
 
-	if (options.header_name.isNull ()) {
+        if (options.namespace_name.isNull())
+            options.namespace_name = options.module_name;
+
+	if (options.header_name.isNull()) {
 	    errf->print ("Header name not specified").pendl ();
 	    return EXIT_FAILURE;
 	}
@@ -213,6 +235,11 @@ int main (int argc, char **argv)
 			capitalizeName (comp_opts->module_name->getMemoryDesc (),
 					false /* keep_underscore */);
 	comp_opts->all_caps_module_name = capitalizeNameAllCaps (comp_opts->module_name->getMemoryDesc ());
+
+        comp_opts->capital_namespace_name =
+                options.extmode ? options.namespace_name :
+                        capitalizeName (options.namespace_name->getMemoryDesc(),
+                                        false /* keep_underscore */);
 
 	comp_opts->header_name = options.header_name;
 	comp_opts->capital_header_name =

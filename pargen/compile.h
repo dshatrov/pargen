@@ -34,6 +34,8 @@ public:
     Ref<String> capital_module_name;
     Ref<String> all_caps_module_name;
 
+    Ref<String> capital_namespace_name;
+
     Ref<String> header_name;
     Ref<String> capital_header_name;
     Ref<String> all_caps_header_name;
