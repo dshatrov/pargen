@@ -125,20 +125,6 @@ cmdline_extmode (const char * /* short_name */,
     return true;
 }
 
-class PargenCharacterRecognizer : public CharacterRecognizer
-{
-public:
-    bool isAlphanumeric (Unichar c)
-    {
-	return CharacterRecognizer::isAlphanumeric (c) || c == (Unichar) '-';
-    }
-
-    bool isAlpha (Unichar c)
-    {
-	return CharacterRecognizer::isAlpha (c) || c == (Unichar) '-';
-    }
-};
-
 int main (int argc, char **argv)
 {
     myCppInit ();
@@ -251,7 +237,10 @@ int main (int argc, char **argv)
 	file = File::createDefault (input_filename,
 				    0 /* open_flags */,
 				    AccessMode::ReadOnly);
-	Ref<FileTokenStream> file_token_stream = grab (new FileTokenStream (file, grab (new PargenCharacterRecognizer ()), true /* report_newlines */));
+	Ref<FileTokenStream> const file_token_stream =
+                grab (new FileTokenStream (file,
+                                           true /* report_newlines */,
+                                           true /* minus_is_alpha */));
 
 	Ref<PargenTask> pargen_task = parsePargenTask (file_token_stream);
 	DEBUG_OLD (
