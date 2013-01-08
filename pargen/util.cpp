@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -19,7 +19,8 @@
 
 #include <pargen/util.h>
 
-using namespace MyCpp;
+
+using namespace M;
 
 namespace Pargen {
 
@@ -49,107 +50,107 @@ lowercaseSymbol (char s)
     return s;
 }
 
-Ref<String>
-capitalizeName (ConstMemoryDesc const &name,
-		bool keep_underscore)
+StRef<String>
+capitalizeName (ConstMemory const name,
+		bool        const keep_underscore)
 {
-    if (name.getLength () == 0)
-	return String::nullString ();
+    if (name.len() == 0)
+	return st_grab (new (std::nothrow) String);
 
-    abortIf (name.getMemory () == NULL);
+    assert (name.mem());
 
     Size str_len = 0;
-    for (Size i = 0; i < name.getLength (); i++) {
-	if (name.getMemory () [i] == ' ' ||
-	    name.getMemory () [i] == '-')
+    for (Size i = 0, i_end = name.len(); i < i_end; i++) {
+	if (name.mem() [i] == ' ' ||
+	    name.mem() [i] == '-')
 	{
 	    continue;
 	}
 
-	if (name.getMemory () [i] == '_' && !keep_underscore)
+	if (name.mem() [i] == '_' && !keep_underscore)
 	    continue;
 
-	str_len ++;
+	++str_len;
     }
 
     if (str_len == 0)
-	return String::nullString ();
+	return st_grab (new (std::nothrow) String);
 
-    Ref<String> str = grab (new String);
+    StRef<String> const str = st_grab (new (std::nothrow) String);
     str->allocate (str_len);
 
-    Bool capital = true;
-    for (Size i = 0, j = 0; i < name.getLength (); i++) {
-	if (name.getMemory () [i] == ' ' ||
-	    name.getMemory () [i] == '-')
+    bool capital = true;
+    for (Size i = 0, j = 0, i_end = name.len(); i < i_end; i++) {
+	if (name.mem() [i] == ' ' ||
+	    name.mem() [i] == '-')
 	{
 	    capital = true;
 	    continue;
 	}
 
-	if (name.getMemory () [i] == '_') {
+	if (name.mem() [i] == '_') {
 	    if (keep_underscore) {
-		str->getData () [j] = name.getMemory () [i];
-		j++;
+		str->mem().mem() [j] = name.mem() [i];
+		++j;
 	    }
 	    capital = true;
 	    continue;
 	}
 
-	abortIf (j >= str_len);
+	assert (j < str_len);
 
 	if (capital) {
-	    str->getData () [j] = capitalizeSymbol (name.getMemory () [i]);
+	    str->mem().mem() [j] = capitalizeSymbol (name.mem() [i]);
 	    capital = false;
 	} else
-	    str->getData () [j] = name.getMemory () [i];
+	    str->mem().mem() [j] = name.mem() [i];
 
-	j++;
+	++j;
     }
 
-    str->getData () [str_len] = 0;
+    str->mem().mem() [str_len] = 0;
 
     return str;
 }
 
-Ref<String>
-capitalizeNameAllCaps (ConstMemoryDesc const &name)
+StRef<String>
+capitalizeNameAllCaps (ConstMemory const name)
 {
-    if (name.getLength () == 0)
-	return String::nullString ();
+    if (name.len() == 0)
+        return st_grab (new (std::nothrow) String);
 
-    abortIf (name.getMemory () == NULL);
+    assert (name.mem());
 
-    Ref<String> str = grab (new String);
-    str->allocate (name.getLength ());
+    StRef<String> const str = st_grab (new (std::nothrow) String);
+    str->allocate (name.len());
 
-    for (Size i = 0; i < name.getLength (); i++)
-	str->getData () [i] = capitalizeSymbol (name.getMemory () [i]);
+    for (Size i = 0, i_end = name.len(); i < i_end; i++)
+	str->mem().mem() [i] = capitalizeSymbol (name.mem() [i]);
 
-    str->getData () [name.getLength ()] = 0;
+    str->mem().mem() [name.len()] = 0;
 
     return str;
 }
 
-Ref<String>
-lowercaseName (ConstMemoryDesc const &name)
+StRef<String>
+lowercaseName (ConstMemory const name)
 {
-    if (name.getLength () == 0)
-	return String::nullString ();
+    if (name.len() == 0)
+        return st_grab (new (std::nothrow) String);
 
-    abortIf (name.getMemory () == NULL);
+    assert (name.mem());
 
-    Ref<String> str = grab (new String);
-    str->allocate (name.getLength ());
+    StRef<String> const str = st_grab (new (std::nothrow) String);
+    str->allocate (name.len());
 
-    for (Size i = 0; i < name.getLength (); i++) {
-	if (name.getMemory () [i] == '-')
-	    str->getData () [i] = '_';
+    for (Size i = 0, i_end = name.len(); i < i_end; i++) {
+	if (name.mem() [i] == '-')
+	    str->mem().mem() [i] = '_';
 	else
-	    str->getData () [i] = lowercaseSymbol (name.getMemory () [i]);
+	    str->mem().mem() [i] = lowercaseSymbol (name.mem() [i]);
     }
 
-    str->getData () [name.getLength ()] = 0;
+    str->mem().mem() [name.len()] = 0;
 
     return str;
 }

@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,15 +17,16 @@
 */
 
 
-#ifndef __PARGEN__PARSER_H__
-#define __PARGEN__PARSER_H__
+#ifndef PARGEN__PARSER__H__
+#define PARGEN__PARSER__H__
 
-#include <mylang/token_stream.h>
 
+#include <pargen/token_stream.h>
 #include <pargen/grammar.h>
 #include <pargen/parser_element.h>
 #include <pargen/lookup_data.h>
-#include <pargen/parsing_exception.h>
+//#include <pargen/parsing_exception.h>
+
 
 /**
  * .root
@@ -34,58 +35,58 @@
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
 /*c
  * Position marker
  */
-class ParserPositionMarker : public virtual SimplyReferenced
+class ParserPositionMarker : public StReferenced
 {
 };
 
 /*c
  * Parser control object
  */
-class ParserControl : public virtual SimplyReferenced
+class ParserControl : public StReferenced
 {
 public:
     virtual void setCreateElements (bool create_elements) = 0;
 
-    virtual Ref<ParserPositionMarker> getPosition () = 0;
+    virtual StRef<ParserPositionMarker> getPosition () = 0;
 
-    virtual void setPosition (ParserPositionMarker *pmark) = 0;
+    virtual mt_throws Result setPosition (ParserPositionMarker *pmark) = 0;
 
-    virtual void setVariant (ConstMemoryDesc const &variant_name) = 0;
+    virtual void setVariant (ConstMemory variant_name) = 0;
 };
 
 // External users should not modify contents of ParserConfig objects.
-class ParserConfig : public virtual SimplyReferenced
+class ParserConfig : public StReferenced
 {
 public:
     bool upwards_jumps;
 };
 
-Ref<ParserConfig> createParserConfig (bool upwards_jumps);
+StRef<ParserConfig> createParserConfig (bool upwards_jumps);
 
-Ref<ParserConfig> createDefaultParserConfig ();
-
-/*m*/
-void optimizeGrammar (Grammar *grammar /* non-null */);
+StRef<ParserConfig> createDefaultParserConfig ();
 
 /*m*/
-void parse (MyLang::TokenStream  *token_stream,
-	    LookupData           *lookup_data,
-	    void                 *user_data,
-	    Grammar              *grammar,
-	    ParserElement       **ret_element,
-	    ConstMemoryDesc const &default_variant = ConstMemoryDesc::forString ("default"),
-	    ParserConfig         *parser_config = NULL,
-	    bool                  debug_dump = false)
-     throw (ParsingException,
-	    IOException,
-	    InternalException);
+void optimizeGrammar (Grammar * mt_nonnull grammar);
+
+/*m*/
+#warning TODO explicit error report
+#warning TODO handle return value
+mt_throws Result parse (TokenStream    * mt_nonnull token_stream,
+                        LookupData     *lookup_data,
+                        void           *user_data,
+                        Grammar        * mt_nonnull grammar,
+                        ParserElement **ret_element,
+                        ConstMemory     default_variant = ConstMemory ("default"),
+                        ParserConfig   *parser_config = NULL,
+                        bool            debug_dump = false);
 
 }
 
-#endif /* __PARGEN__PARSER_H__ */
+
+#endif /* PARGEN__PARSER_H__ */
 

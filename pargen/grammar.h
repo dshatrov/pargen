@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,27 +17,19 @@
 */
 
 
-#ifndef __PARGEN__GRAMMAR_H__
-#define __PARGEN__GRAMMAR_H__
+#ifndef PARGEN__GRAMMAR__H__
+#define PARGEN__GRAMMAR__H__
 
-#include <libmary/hash.h>
 
-#include <mycpp/mycpp.h>
-#include <mycpp/io.h>
+#include <libmary/libmary.h>
 
 #include <pargen/parser_element.h>
 #include <pargen/acceptor.h>
 
-#include <string>
-// NO BOOST #include <boost/unordered_set.hpp>
-
-
-#define DEBUG(a) ;
-
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
 class Parser;
 class ParserControl;
@@ -47,8 +39,7 @@ class ParserControl;
  *
  * <c>Grammar</c> objects are opaque for pargen users.
  */
-class Grammar : public SimplyReferenced,
-		public UidProvider
+class Grammar : public StReferenced
 {
 public:
     typedef void (*BeginFunc) (void *data);
@@ -97,7 +88,7 @@ public:
     Bool optimized;
 
     // Returns string representation of the grammar for debugging output.
-    virtual Ref<String> toString () = 0;
+    virtual StRef<String> toString () = 0;
 
     Grammar (Type type)
 	: grammar_type (type)
@@ -115,88 +106,65 @@ public:
 class Grammar_Immediate : public Grammar
 {
 public:
-#if 0
-// Unused
-
-    typedef Ref<ParserElement> (*ElementCreationFunc) (const char *token);
-
-    ElementCreationFunc elem_creation_func;
-#endif
-
     // Do not confuse this with match_func().
     // match_func() is supposed to be provided by the user of the grammar.
     // match() is a description of the grammar type, it's an internal
     // pargen mechanism.
-    virtual bool match (ConstMemoryDesc const &token,
-			void                  *token_user_ptr,
-			void                  *user_data) = 0;
+    virtual bool match (ConstMemory  token,
+			void        *token_user_ptr,
+			void        *user_data) = 0;
 
     Grammar_Immediate ()
 	: Grammar (Grammar::t_Immediate)
     {
-#if 0
-	elem_creation_func = NULL;
-#endif
     }
 };
 
 class Grammar_Immediate_SingleToken : public Grammar_Immediate
 {
 public:
-    typedef bool (*TokenMatchCallback) (ConstMemoryDesc const &token,
-					void                  *token_user_ptr,
-					void                  *user_data);
+    typedef bool (*TokenMatchCallback) (ConstMemory const &token,
+					void        *token_user_ptr,
+					void        *user_data);
 
     TokenMatchCallback token_match_cb;
     // For debug dumps.
-    Ref<String> token_match_cb_name;
+    StRef<String> token_match_cb_name;
 
 protected:
     // If null, then any token matches.
-    Ref<String> token;
+    StRef<String> token;
 
 public:
-    Ref<String> getToken ()
+    StRef<String> getToken ()
     {
 	return token;
     }
 
-    Ref<String> toString ();
+    StRef<String> toString ();
 
-    bool match (ConstMemoryDesc const &t,
-		void                  * const token_user_ptr,
-		void                  * const user_data)
+    bool match (ConstMemory   const t,
+		void        * const token_user_ptr,
+		void        * const user_data)
     {
-	if (token_match_cb != NULL)
+	if (token_match_cb)
 	    return token_match_cb (t, token_user_ptr, user_data);
 
-	if (token.isNull () ||
-	    token->getLength () == 0)
-	{
+	if (!token || token->len() == 0)
 	    return true;
-	}
 
-	return compareByteArrays (token->getMemoryDesc (), t) == ComparisonEqual;
+	return equal (token->mem(), t);
     }
 
     // If token is NULL, then any token matches.
-    Grammar_Immediate_SingleToken (const char *token)
-	: token_match_cb (NULL)
+    Grammar_Immediate_SingleToken (char const * const token)
+	: token_match_cb (NULL),
+          token (st_grab (new String (token)))
     {
-	this->token = grab (new String (token));
     }
 };
 
-#if 0
-class TranzitionEntry : public SimplyReferenced
-{
-public:
-// Deprecated comment    // If null, then '*' (any token) is assumed.
-    Ref<String> token;
-};
-#endif
-
-class TranzitionMatchEntry : public SimplyReferenced
+class TranzitionMatchEntry : public StReferenced
 {
 public:
     Grammar_Immediate_SingleToken::TokenMatchCallback token_match_cb;
@@ -207,46 +175,41 @@ public:
     }
 };
 
-class SwitchGrammarEntry : public SimplyReferenced
+class SwitchGrammarEntry : public StReferenced
 {
 public:
     enum Flags {
 	Dominating = 0x1 // Currently unused
     };
 
-    Ref<Grammar> grammar;
+    StRef<Grammar> grammar;
     Uint32 flags;
 
-    List< Ref<String> > variants;
+    List< StRef<String> > variants;
 
-//    List< Ref<TranzitionEntry> > tranzition_entries;
-//    std::hash_set< Ref<TranzitionEntry> > tranzition_entries;
-
-//    boost::unordered_set<std::string> tranzition_entries;
-
-    class TranzitionEntry : public SimplyReferenced,
+    class TranzitionEntry : public StReferenced,
 			    public M::HashEntry<>
     {
     public:
-	Ref<String> grammar_name;
+	StRef<String> grammar_name;
     };
 
     typedef M::Hash< TranzitionEntry,
-		     MemoryDesc,
+		     Memory,
 		     MemberExtractor< TranzitionEntry,
-				      Ref<String>,
+				      StRef<String>,
 				      &TranzitionEntry::grammar_name,
-				      MemoryDesc,
+				      Memory,
 				      AccessorExtractor< String,
-							 MemoryDesc,
-							 &String::getMemoryDesc > >,
+							 Memory,
+							 &String::mem > >,
 		     MemoryComparator<> >
 	    TranzitionEntryHash;
 
     TranzitionEntryHash tranzition_entries;
 
     // TODO Use Map<>
-    List< Ref<TranzitionMatchEntry> > tranzition_match_entries;
+    List< StRef<TranzitionMatchEntry> > tranzition_match_entries;
     bool any_tranzition;
 
     SwitchGrammarEntry ()
@@ -258,7 +221,7 @@ public:
     ~SwitchGrammarEntry ();
 };
 
-class CompoundGrammarEntry : public SimplyReferenced
+class CompoundGrammarEntry : public StReferenced
 {
 public:
     typedef void (*AssignmentFunc) (ParserElement *compound_element,
@@ -271,12 +234,8 @@ public:
 	ParserElement *compound_element;
 
     public:
-	void setParserElement (ParserElement *parser_element)
+	void setParserElement (ParserElement * const parser_element)
 	{
-	    DEBUG (
-		errf->print ("CompoundGrammarEntry.Acceptor.setParserElement: acceptor 0x").printHex ((Uint64) this).print (", parser_element 0x").printHex ((Uint64) parser_element).pendl ();
-	    )
-
 	    if (assignment_func != NULL)
 		assignment_func (compound_element, parser_element);
 	}
@@ -288,12 +247,12 @@ public:
 	    this->compound_element = compound_element;
 	}
 
-	Acceptor (AssignmentFunc  assignment_func,
-		  ParserElement  *compound_element)
+	Acceptor (AssignmentFunc   const assignment_func,
+		  ParserElement  * const mt_nonnull compound_element)
+            : assignment_func  (assignment_func),
+              compound_element (compound_element)
 	{
-	    abortIf (compound_element == NULL);
-	    this->assignment_func = assignment_func;
-	    this->compound_element = compound_element;
+	    assert (compound_element);
 	}
 
 	Acceptor ()
@@ -318,28 +277,21 @@ public:
     Grammar::JumpFunc jump_cb;
 
     Size jump_switch_grammar_index;
-    List< Ref<SwitchGrammarEntry> >::Element *jump_switch_grammar_entry;
+    List< StRef<SwitchGrammarEntry> >::Element *jump_switch_grammar_entry;
 
     Size jump_compound_grammar_index;
-    List< Ref<CompoundGrammarEntry> >::Element *jump_compound_grammar_entry;
+    List< StRef<CompoundGrammarEntry> >::Element *jump_compound_grammar_entry;
 
     // If inline_match_func is non-null, then all other fields
     // should be considered invalid.
     Grammar::InlineMatchFunc inline_match_func;
 
-    Ref<Grammar> grammar;
+    StRef<Grammar> grammar;
     Uint32 flags;
 
     AssignmentFunc assignment_func;
 
     static VSlab<Acceptor> acceptor_slab;
-
-#if 0
-    Ref<Acceptor> createAcceptorFor (ParserElement *compound_element)
-    {
-	return grab (new Acceptor (assignment_func, compound_element));
-    }
-#endif
 
     VSlabRef<Acceptor> createAcceptorFor (ParserElement *compound_element)
     {
@@ -367,22 +319,21 @@ public:
 class Grammar_Compound : public Grammar
 {
 public:
-//    typedef Ref<ParserElement> (*ElementCreationFunc) ();
     typedef ParserElement* (*ElementCreationFunc) (VStack * const vstack /* non-null */);
 
-    Ref<String> name;
+    StRef<String> name;
 
     ElementCreationFunc elem_creation_func;
-    List< Ref<CompoundGrammarEntry> > grammar_entries;
+    List< StRef<CompoundGrammarEntry> > grammar_entries;
 
-    Ref<String> toString ();
+    StRef<String> toString ();
 
-    List< Ref<CompoundGrammarEntry> >::Element* getSecondSubgrammarElement ()
+    List< StRef<CompoundGrammarEntry> >::Element* getSecondSubgrammarElement ()
     {
 	Size i = 0;
-	List< Ref<CompoundGrammarEntry> >::Iterator ge_iter (grammar_entries);
+	List< StRef<CompoundGrammarEntry> >::Iterator ge_iter (grammar_entries);
 	while (!ge_iter.done ()) {
-	    List< Ref<CompoundGrammarEntry> >::Element &ge_el = ge_iter.next ();
+	    List< StRef<CompoundGrammarEntry> >::Element &ge_el = ge_iter.next ();
 	    if (ge_el.data->inline_match_func == NULL) {
 		i ++;
 		if (i > 1)
@@ -395,9 +346,9 @@ public:
 
     CompoundGrammarEntry* getFirstSubgrammarEntry ()
     {
-	List< Ref<CompoundGrammarEntry> >::DataIterator ge_iter (grammar_entries);
+	List< StRef<CompoundGrammarEntry> >::DataIterator ge_iter (grammar_entries);
 	while (!ge_iter.done ()) {
-	    Ref<CompoundGrammarEntry> &ge = ge_iter.next ();
+	    StRef<CompoundGrammarEntry> &ge = ge_iter.next ();
 	    if (ge->inline_match_func == NULL)
 		return ge;
 	}
@@ -429,11 +380,11 @@ public:
 class Grammar_Switch : public Grammar
 {
 public:
-    Ref<String> name;
+    StRef<String> name;
 
-    List< Ref<SwitchGrammarEntry> > grammar_entries;
+    List< StRef<SwitchGrammarEntry> > grammar_entries;
 
-    Ref<String> toString ();
+    StRef<String> toString ();
 
     Grammar_Switch ()
 	: Grammar (Grammar::t_Switch)
@@ -444,14 +395,14 @@ public:
 class Grammar_Alias : public Grammar
 {
 public:
-    Ref<String> name;
+    StRef<String> name;
 
-    Ref<Grammar> aliased_grammar;
+    StRef<Grammar> aliased_grammar;
 
-    Ref<String> toString ()
+    StRef<String> toString ()
     {
 	// TODO
-	return String::forData ("--- Alias ---");
+	return st_grab (new String ("--- Alias ---"));
     }
 
     Grammar_Alias ()
@@ -463,10 +414,8 @@ public:
 }
 
 
-#undef DEBUG
-
-
 #include <pargen/parser.h>
 
-#endif /* __PARGEN__GRAMMAR_H__ */
+
+#endif /* PARGEN__GRAMMAR__H__ */
 

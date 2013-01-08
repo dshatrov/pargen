@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,23 +17,26 @@
 */
 
 
-#ifndef __PARGEN__UTIL_H__
-#define __PARGEN__UTIL_H__
+#ifndef PARGEN__UTIL__H__
+#define PARGEN__UTIL__H__
 
-#include <mycpp/string.h>
+
+#include <libmary/libmary.h>
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-Ref<String> capitalizeName (ConstMemoryDesc const &name,
-			    bool keep_underscore = true);
+StRef<String> capitalizeName (ConstMemory name,
+                              bool        keep_underscore = true);
 
-Ref<String> capitalizeNameAllCaps (ConstMemoryDesc const &name);
+StRef<String> capitalizeNameAllCaps (ConstMemory name);
 
-Ref<String> lowercaseName (ConstMemoryDesc const &name);
+StRef<String> lowercaseName (ConstMemory name);
 
 }
 
-#endif /* __PARGEN__UTIL_H__ */
+
+#endif /* PARGEN__UTIL__H__ */
 

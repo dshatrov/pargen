@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,42 +17,33 @@
 */
 
 
-#include <mycpp/util.h>
-#include <mycpp/io.h>
-
 #include <pargen/source_compiler.h>
 
-#define DEBUG(a) a
 
-using namespace MyCpp;
+using namespace M;
 
 namespace Pargen {
 
-static void
-compileSource_Phrase (File *file,
-		      Phrase const *phrase,
-		      CompilationOptions const *opts,
-		      ConstMemoryDesc const &declaration_name,
-		      ConstMemoryDesc const &lowercase_declaration_name,
-		      ConstMemoryDesc const &phrase_name,
-		      bool subtype,
-		      bool has_begin,
-		      bool has_match,
-		      bool has_accept)
-    throw (CompilationException,
-	   IOException,
-	   InternalException)
+static mt_throws Result
+compileSource_Phrase (File                     * const mt_nonnull file,
+		      Phrase const             * const mt_nonnull phrase,
+		      CompilationOptions const * const mt_nonnull opts,
+		      ConstMemory                const declaration_name,
+		      ConstMemory                const lowercase_declaration_name,
+		      ConstMemory                const phrase_name,
+		      bool                       const subtype,
+		      bool                       const has_begin,
+		      bool                       const has_match,
+		      bool                       const has_accept)
 {
-    abortIf (file == NULL ||
-	     phrase == NULL ||
-	     opts == NULL);
+    assert (file && phrase && opts);
 
-    ConstMemoryDesc decl_name;
-    ConstMemoryDesc lowercase_decl_name;
+    ConstMemory decl_name;
+    ConstMemory lowercase_decl_name;
     bool global_grammar;
-    if (compareByteArrays (declaration_name, ConstMemoryDesc ("*", countStrLength ("*"))) == ComparisonEqual) {
-	decl_name = ConstMemoryDesc ("Grammar", countStrLength ("Grammar"));
-	lowercase_decl_name = ConstMemoryDesc ("grammar", countStrLength ("grammar"));
+    if (equal (declaration_name, "*")) {
+	decl_name = ConstMemory ("Grammar");
+	lowercase_decl_name = ConstMemory ("grammar");
 	global_grammar = true;
     } else {
 	decl_name = declaration_name;
@@ -60,81 +51,94 @@ compileSource_Phrase (File *file,
 	global_grammar = false;
     }
 
-    Ref<String> phrase_prefix;
+    StRef<String> phrase_prefix;
     if (subtype)
-	phrase_prefix = String::forPrintTask (Pt (decl_name) ((const char*) "_") (phrase_name));
+	phrase_prefix = st_makeString (decl_name, "_", phrase_name);
     else
-	phrase_prefix = String::forPrintTask (Pt (decl_name));
+	phrase_prefix = st_makeString (decl_name);
 
     {
-	List< Ref<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
+	List< StRef<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
 	while (!phrase_part_iter.done ()) {
-	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
+	    StRef<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
 	    if (phrase_part->phrase_part_type == PhrasePart::t_AcceptCb) {
-		PhrasePart_AcceptCb *phrase_part__accept_cb = static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr ());
+		PhrasePart_AcceptCb * const phrase_part__accept_cb =
+                        static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr());
+
 		if (phrase_part__accept_cb->repetition)
 		    continue;
 
-		file->out ("bool ").out (phrase_part__accept_cb->cb_name).out (" (\n"
-			   "        ").out (opts->capital_header_name).out ("_").out (decl_name).out (" *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data);\n"
-			   "\n"
-			   "bool __pargen_").out (phrase_part__accept_cb->cb_name).out (" (\n"
-			   "        ParserElement *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data)\n"
-			   "{\n"
-			   "    ").out (opts->capital_header_name).out ("Element * const &_el =\n"
-			   "            static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n"
-			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != "
-				    ).out (opts->capital_header_name).out ("Element::t_").out (decl_name).out (");\n"
-			   "\n"
-			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" * const &el =\n"
-			   "            static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("*> (_el);\n"
-			   "\n"
-			   "    return ").out (phrase_part__accept_cb->cb_name).out (" (el, parser_control, data);\n"
-			   "}\n"
-			   "\n");
+		if (!file->print ("bool ", phrase_part__accept_cb->cb_name, " (\n"
+                                  "        ", opts->capital_header_name, "_", decl_name, " *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data);\n"
+                                  "\n"
+                                  "bool __pargen_", phrase_part__accept_cb->cb_name, " (\n"
+                                  "        ParserElement *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data)\n"
+                                  "{\n"
+                                  "    ", opts->capital_header_name, "Element * const &_el =\n"
+                                  "            static_cast <", opts->capital_header_name, "Element*> (parser_element);\n"
+                                  "    assert (_el->", opts->header_name, "_element_type == ",
+                                           opts->capital_header_name, "Element::t_", decl_name, ");\n"
+                                  "\n"
+                                  "    ", opts->capital_header_name, "_", decl_name, " * const &el =\n"
+                                  "            static_cast <", opts->capital_header_name, "_", decl_name, "*> (_el);\n"
+                                  "\n"
+                                  "    return ", phrase_part__accept_cb->cb_name, " (el, parser_control, data);\n"
+                                  "}\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 
 		continue;
 	    }
 
 	    if (phrase_part->phrase_part_type == PhrasePart::t_UniversalAcceptCb) {
-		PhrasePart_UniversalAcceptCb *phrase_part__universal_accept_cb = static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr ());
+		PhrasePart_UniversalAcceptCb * const phrase_part__universal_accept_cb =
+                        static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr());
+
 		if (phrase_part__universal_accept_cb->repetition)
 		    continue;
 
-		file->out ("bool ").out (phrase_part__universal_accept_cb->cb_name).out (" (\n"
-			   "        ").out (opts->capital_header_name).out ("Element *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data);\n"
-			   "\n"
-			   "bool __pargen_").out (phrase_part__universal_accept_cb->cb_name).out (" (\n"
-			   "        ParserElement *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data)\n"
-			   "{\n"
-			   "    ").out (opts->capital_header_name).out ("Element * const &_el =\n"
-			   "            static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n").out (
-			   "\n"
-			   "    return ").out (phrase_part__universal_accept_cb->cb_name).out (" (_el, parser_control, data);\n"
-			   "}\n"
-			   "\n");
+		if (!file->print ("bool ", phrase_part__universal_accept_cb->cb_name, " (\n"
+                                  "        ", opts->capital_header_name, "Element *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data);\n"
+                                  "\n"
+                                  "bool __pargen_", phrase_part__universal_accept_cb->cb_name, " (\n"
+                                  "        ParserElement *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data)\n"
+                                  "{\n"
+                                  "    ", opts->capital_header_name, "Element * const &_el =\n"
+                                  "            static_cast <", opts->capital_header_name, "Element*> (parser_element);\n",
+                                  "\n"
+                                  "    return ", phrase_part__universal_accept_cb->cb_name, " (_el, parser_control, data);\n"
+                                  "}\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 
 		continue;
 	    }
 
 	    if (phrase_part->phrase_part_type == PhrasePart::t_UpwardsAnchor) {
 		PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
-			static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
+			static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr());
 
-		if (!phrase_part__upwards_anchor->jump_cb_name.isNull ()) {
-		    file->out ("bool ").out (phrase_part__upwards_anchor->jump_cb_name).out (" (\n"
-			       "        ParserElement *parser_element,\n"
-			       "        void *data);\n"
-			       "\n");
+		if (phrase_part__upwards_anchor->jump_cb_name) {
+		    if (!file->print ("bool ", phrase_part__upwards_anchor->jump_cb_name, " (\n"
+                                      "        ParserElement *parser_element,\n"
+                                      "        void *data);\n"
+                                      "\n"))
+                    {
+                        return Result::Failure;
+                    }
 		}
 
 		continue;
@@ -145,301 +149,438 @@ compileSource_Phrase (File *file,
 		continue;
 	    }
 
-	    const char *name_to_set;
-	    const char *type_to_set;
+	    ConstMemory name_to_set;
+	    ConstMemory type_to_set;
 	    bool any_token = false;
 	    if (phrase_part->phrase_part_type == PhrasePart::t_Token) {
-		PhrasePart_Token *phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
-		if (phrase_part__token->token.isNull () ||
-		    phrase_part__token->token->getLength () == 0)
+		PhrasePart_Token * const phrase_part__token =
+                    static_cast <PhrasePart_Token*> (phrase_part.ptr());
+
+		if (!phrase_part__token->token ||
+		    phrase_part__token->token->len() == 0)
 		{
 		    any_token = true;
-		    name_to_set = "any_token";
+		    name_to_set = ConstMemory ("any_token");
 		    // This doesn't matter for "any" token;
-		    type_to_set = "__invalid_type__";
+		    type_to_set = ConstMemory ("__invalid_type__");
 		} else {
 		    continue;
 		}
 	    } else {
-		abortIf (phrase_part->phrase_part_type != PhrasePart::t_Phrase);
+		assert (phrase_part->phrase_part_type == PhrasePart::t_Phrase);
 		
-		PhrasePart_Phrase * const &phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
+		PhrasePart_Phrase * const phrase_part__phrase =
+                        static_cast <PhrasePart_Phrase*> (phrase_part.ptr());
 
-		name_to_set = phrase_part__phrase->name->getData ();
-		type_to_set = phrase_part__phrase->decl_phrases->declaration_name->getData ();
+		name_to_set = phrase_part__phrase->name->mem();
+		type_to_set = phrase_part__phrase->decl_phrases->declaration_name->mem();
 	    }
 
-	    file->out ("static void\n")
-		       .out (opts->header_name).out ("_").out (phrase_prefix).out ("_set_").out (name_to_set).out (" (\n"
-		       "        ParserElement *___self,\n"
-		       "        ParserElement *___el)\n"
-		       "{\n"
+	    if (!file->print ("static void\n",
+                              opts->header_name, "_", phrase_prefix, "_set_", name_to_set, " (\n"
+                              "        ParserElement *___self,\n"
+                              "        ParserElement *___el)\n"
+                              "{\n"
 #if 0
-		       "    abortIf (___self == NULL ||\n"
-		       "             ___el == NULL);\n"
+                              "    assert (___self && ___el);\n"
 #endif
-		       "    if (___self == NULL ||\n"
-		       "        ___el == NULL)\n"
-		       "    {\n"
-		       "        return;\n"
-		       "    }\n"
-		       "\n"
-		       "    ").out (opts->capital_header_name).out ("Element * const &__self = static_cast <").out (opts->capital_header_name).out ("Element*> (___self);\n");
+                              "    if (___self == NULL ||\n"
+                              "        ___el == NULL)\n"
+                              "    {\n"
+                              "        return;\n"
+                              "    }\n"
+                              "\n"
+                              "    ", opts->capital_header_name, "Element * const &__self = "
+                                      "static_cast <", opts->capital_header_name, "Element*> (___self);\n"))
+            {
+                return Result::Failure;
+            }
 
 	    if (!any_token) {
-		file->out ("    ").out (opts->capital_header_name).out ("Element * const &__el = static_cast <").out (opts->capital_header_name).out ("Element*> (___el);\n");
+		if (!file->print ("    ", opts->capital_header_name, "Element * const &__el = "
+                                          "static_cast <", opts->capital_header_name, "Element*> (___el);\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 
-	    file->out ("\n"
-		       "    abortIf (__self->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (decl_name);
-		       
+	    if (!file->print ("\n"
+                              "    assert (__self->", opts->header_name, "_element_type == ",
+                                      opts->capital_header_name, "Element::t_", decl_name))
+            {
+                return Result::Failure;
+            }
+
 	    if (!any_token) {
-		file->out (" ||\n"
-			   "             __el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (type_to_set);
+		if (!file->print (" ||\n"
+                                  "             __el->", opts->header_name, "_element_type != ",
+                                          opts->capital_header_name, "Element::t_", type_to_set))
+                {
+                    return Result::Failure;
+                }
 	    }
 	    
-	    file->out (");\n"
-		       "\n");
+	    if (!file->print (");\n"
+                              "\n"))
+            {
+                return Result::Failure;
+            }
 
 	    if (subtype) {
-		file->out ("    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" * const &_self = static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("*> (__self);\n"
-			   "\n"
-			   "    abortIf (_self->").out (lowercase_decl_name).out ("_type").out (" != ").out (opts->capital_header_name).out ("_").out (decl_name).out ("::t_").out (phrase_name).out (");\n"
-			   "\n"
-			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase_name).out (" * const &self = static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase_name).out ("*> (_self);\n"
-			   "\n");
+		if (!file->print ("    ", opts->capital_header_name, "_", decl_name, " * const &_self = "
+                                          "static_cast <", opts->capital_header_name, "_", decl_name, "*> (__self);\n"
+                                  "\n"
+                                  "    assert (_self->", lowercase_decl_name, "_type", " == ",
+                                          opts->capital_header_name, "_", decl_name, "::t_", phrase_name, ");\n"
+                                  "\n"
+                                  "    ", opts->capital_header_name, "_", decl_name, "_", phrase_name, " * const &self = "
+                                          "static_cast <", opts->capital_header_name, "_", decl_name, "_", phrase_name, "*> (_self);\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    } else {
-		file->out  ("    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" * const &self = static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("*> (__self);\n"
-			    "\n");
+                if (!file->print ("    ", opts->capital_header_name, "_", decl_name, " * const &self = "
+                                          "static_cast <", opts->capital_header_name, "_", decl_name, "*> (__self);\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 
-	    file->out ("    self->").out (name_to_set);
+	    if (!file->print ("    self->", name_to_set))
+                return Result::Failure;
 
 	    if (any_token) {
-		file->out (" = static_cast <ParserElement_Token*> (___el);\n");
+		if (!file->print (" = static_cast <ParserElement_Token*> (___el);\n"))
+                    return Result::Failure;
 	    } else {
-		if (phrase_part->seq)
-		    file->out ("s.append (static_cast <").out (opts->capital_header_name).out ("_").out (type_to_set).out ("*> (__el));\n");
-		else
-		    file->out (" = static_cast <").out (opts->capital_header_name).out ("_").out (type_to_set).out ("*> (___el);\n");
+		if (phrase_part->seq) {
+		    if (!file->print ("s.append (static_cast <", opts->capital_header_name, "_", type_to_set, "*> (__el));\n"))
+                        return Result::Failure;
+                } else {
+		    if (!file->print (" = static_cast <", opts->capital_header_name, "_", type_to_set, "*> (___el);\n"))
+                        return Result::Failure;
+                }
 	    }
 
-	    file->out ("}\n"
-		       "\n");
+	    if (!file->print ("}\n"
+                              "\n"))
+            {
+                return Result::Failure;
+            }
 	}
     }
 
-    file->out ("static ParserElement*\n")
-	       .out (opts->header_name).out ("_").out (phrase_prefix).out ("_creation_func (VStack * const vstack /* non-null */)\n"
-	       "{\n"
-	       "    return new (vstack->push_malign (sizeof (").out (opts->capital_header_name).out ("_").out (phrase_prefix).out ("))) ").out (opts->capital_header_name).out ("_").out (phrase_prefix).out (";\n"
-	       "}\n"
-	       "\n");
-//	       "    return grab (static_cast <ParserElement*> (new ").out (opts->capital_header_name).out ("_").out (phrase_prefix).out ("));\n"
+    if (!file->print ("static ParserElement*\n",
+                      opts->header_name, "_", phrase_prefix, "_creation_func (VStack * const vstack /* non-null */)\n"
+                      "{\n"
+                      "    return new (vstack->push_malign ("
+                              "sizeof  (", opts->capital_header_name, "_", phrase_prefix, "), "
+                              "alignof (", opts->capital_header_name, "_", phrase_prefix, ")"
+                              ")) ",
+                              opts->capital_header_name, "_", phrase_prefix, ";\n"
+                      "}\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
-    if (!global_grammar)
-	file->out ("static ");
-    file->out ("Ref<Grammar>\n"
-	       "create_").out (opts->header_name).out ("_").out (global_grammar ? "grammar" : phrase_prefix->getData ()).out (" ()\n"
-	       "{\n"
-	       "    static Ref<Grammar_Compound> grammar;\n"
-	       "    if (!grammar.isNull ())\n"
-	       "        return grammar.ptr ();\n"
-	       "\n"
-	       "    grammar = grab (new Grammar_Compound (").out (opts->header_name).out ("_").out (phrase_prefix).out ("_creation_func));\n"
-	       "    grammar->name = String::forData (\"").out (phrase_prefix).out ("\");\n");
+    if (!global_grammar) {
+	if (!file->print ("static "))
+            return Result::Failure;
+    }
 
-    if (has_begin)
-	file->out ("    grammar->begin_func = ").out (opts->header_name).out ("_").out (phrase_prefix).out ("_begin_func;\n");
-    if (has_match)
-	file->out ("    grammar->match_func = __pargen_").out (opts->header_name).out ("_").out (phrase_prefix).out ("_match_func;\n");
-    if (has_accept)
-	file->out ("    grammar->accept_func = __pargen_").out (opts->header_name).out ("_").out (phrase_prefix).out ("_accept_func;\n");
+    if (!file->print ("StRef<Grammar>\n"
+                      "create_", opts->header_name, "_", (global_grammar ? ConstMemory ("grammar") : phrase_prefix->mem()), " ()\n"
+                      "{\n"
+                      "    static StRef<Grammar_Compound> grammar;\n"
+                      "    if (grammar)\n"
+                      "        return grammar;\n"
+                      "\n"
+                      "    grammar = st_grab (new (std::nothrow) Grammar_Compound (", opts->header_name, "_", phrase_prefix, "_creation_func));\n"
+                      "    grammar->name = st_grab (new (std::nothrow) String (\"", phrase_prefix, "\"));\n"))
+    {
+        return Result::Failure;
+    }
 
-    file->out ("\n");
+    if (has_begin) {
+	if (!file->print ("    grammar->begin_func = ", opts->header_name, "_", phrase_prefix, "_begin_func;\n"))
+            return Result::Failure;
+    }
+
+    if (has_match) {
+	if (!file->print ("    grammar->match_func = __pargen_", opts->header_name, "_", phrase_prefix, "_match_func;\n"))
+            return Result::Failure;
+    }
+
+    if (has_accept) {
+	if (!file->print ("    grammar->accept_func = __pargen_", opts->header_name, "_", phrase_prefix, "_accept_func;\n"))
+            return Result::Failure;
+    }
+
+    if (!file->print ("\n"))
+        return Result::Failure;
 
     {
-	List< Ref<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
+	List< StRef<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
 	while (!phrase_part_iter.done ()) {
-	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
+	    StRef<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
 	    if (phrase_part->phrase_part_type == PhrasePart::t_Label)
 		continue;
 
-	    file->out ("    {\n"
-		       "        Ref<CompoundGrammarEntry> entry = grab (new CompoundGrammarEntry ());\n");
+	    if (!file->print ("    {\n"
+                              "        StRef<CompoundGrammarEntry> const entry = st_grab (new (std::nothrow) CompoundGrammarEntry ());\n"))
+            {
+                return Result::Failure;
+            }
 
-	    if (phrase_part->opt)
-		file->out ("        entry->flags |= CompoundGrammarEntry::Optional;\n");
+	    if (phrase_part->opt) {
+		if (!file->print ("        entry->flags |= CompoundGrammarEntry::Optional;\n"))
+                    return Result::Failure;
+            }
 
-	    if (phrase_part->seq)
-		file->out ("        entry->flags |= CompoundGrammarEntry::Sequence;\n");
+	    if (phrase_part->seq) {
+		if (!file->print ("        entry->flags |= CompoundGrammarEntry::Sequence;\n"))
+                    return Result::Failure;
+            }
 
 	    switch (phrase_part->phrase_part_type) {
 		case PhrasePart::t_Phrase: {
-		    PhrasePart_Phrase * const &phrase_part__phrase =
-			    static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
+		    PhrasePart_Phrase * const phrase_part__phrase =
+			    static_cast <PhrasePart_Phrase*> (phrase_part.ptr());
 
-		    file->out ("        entry->grammar = "
-						"create_").out (opts->header_name).out (
-						"_").out (phrase_part__phrase->phrase_name).out (" ();\n"
-			       "        entry->assignment_func = "
-						).out (opts->header_name).out ("_").out (phrase_prefix).out (
-						"_set_").out (phrase_part__phrase->name).out (";\n");
+		    if (!file->print ("        entry->grammar = "
+                                                       "create_", opts->header_name,
+                                                       "_", phrase_part__phrase->phrase_name, " ();\n"
+                                      "        entry->assignment_func = ",
+                                                       opts->header_name, "_", phrase_prefix,
+                                                       "_set_", phrase_part__phrase->name, ";\n"))
+                    {
+                        return Result::Failure;
+                    }
 		} break;
 		case PhrasePart::t_Token: {
-		    PhrasePart_Token * const &phrase_part__token =
-			    static_cast <PhrasePart_Token*> (phrase_part.ptr ());
+		    PhrasePart_Token * const phrase_part__token =
+			    static_cast <PhrasePart_Token*> (phrase_part.ptr());
 
-		    file->out ("\n"
-			       "        Ref<Grammar_Immediate_SingleToken> grammar__immediate = "
-						"grab (new Grammar_Immediate_SingleToken ("
-							"\"").out (phrase_part__token->token).out ("\"));\n");
-		    if (!phrase_part__token->token_match_cb.isNull () &&
-			phrase_part__token->token_match_cb->getLength () > 0)
+		    if (!file->print ("\n"
+                                      "        StRef<Grammar_Immediate_SingleToken> const grammar__immediate = "
+                                                       "st_grab (new (std::nothrow) Grammar_Immediate_SingleToken ("
+                                                               "\"", phrase_part__token->token, "\"));\n"))
+                    {
+                        return Result::Failure;
+                    }
+
+		    if (phrase_part__token->token_match_cb &&
+			phrase_part__token->token_match_cb->len() > 0)
 		    {
-			file->out ("\n"
-				   "        bool ").out (phrase_part__token->token_match_cb).out (" (\n"
-				   "                ConstMemoryDesc const &token,\n"
-				   "                void                  *token_user_ptr,\n"
-				   "                void                  *user_data);\n"
-				   "\n");
+			if (!file->print ("\n"
+                                          "        bool ", phrase_part__token->token_match_cb, " (\n"
+                                          "                ConstMemory const &token,\n"
+                                          "                void              *token_user_ptr,\n"
+                                          "                void              *user_data);\n"
+                                          "\n"))
+                        {
+                            return Result::Failure;
+                        }
 
-			file->out ("        grammar__immediate->token_match_cb = "
-						    ).out (phrase_part__token->token_match_cb).out (";\n");
-			file->out ("        grammar__immediate->token_match_cb_name = "
-						    "grab (new String ("
-							    "\"").out (phrase_part__token->token_match_cb).out ("\"));\n"
-				   "\n");
+			if (!file->print ("        grammar__immediate->token_match_cb = ",
+                                                           phrase_part__token->token_match_cb, ";\n"))
+                        {
+                            return Result::Failure;
+                        }
+
+			if (!file->print ("        grammar__immediate->token_match_cb_name = "
+                                                           "st_grab (new (std::nothrow) String ("
+                                                                   "\"", phrase_part__token->token_match_cb, "\"));\n"
+                                          "\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
-		    file->out ("        entry->grammar = grammar__immediate;\n");
 
-		    if (phrase_part__token->token.isNull () ||
-			phrase_part__token->token->getLength () == 0)
+		    if (!file->print ("        entry->grammar = grammar__immediate;\n"))
+                        return Result::Failure;
+
+		    if (!phrase_part__token->token ||
+			phrase_part__token->token->len() == 0)
 		    {
-			file->out ("        entry->assignment_func = "
-						    ).out (opts->header_name).out ("_").out (phrase_prefix).out (
-						    "_set_").out ("any_token").out (";\n");
+			if (!file->print ("        entry->assignment_func = ",
+                                                           opts->header_name, "_", phrase_prefix,
+                                                           "_set_any_token;\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		} break;
 		case PhrasePart::t_AcceptCb: {
-		    PhrasePart_AcceptCb * const &phrase_part__match_cb =
-			    static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr ());
+		    PhrasePart_AcceptCb * const phrase_part__match_cb =
+			    static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr());
 
-		    file->out ("        entry->inline_match_func = __pargen_").out (phrase_part__match_cb->cb_name).out (";\n");
+		    if (!file->print ("        entry->inline_match_func = __pargen_", phrase_part__match_cb->cb_name, ";\n"))
+                        return Result::Failure;
 		} break;
 		case PhrasePart::t_UniversalAcceptCb: {
-		    PhrasePart_UniversalAcceptCb * const &phrase_part__match_cb =
-			    static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr ());
+		    PhrasePart_UniversalAcceptCb * const phrase_part__match_cb =
+			    static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr());
 
-		    file->out ("        entry->inline_match_func = __pargen_").out (phrase_part__match_cb->cb_name).out (";\n");
+		    if (!file->print ("        entry->inline_match_func = __pargen_", phrase_part__match_cb->cb_name, ";\n"))
+                        return Result::Failure;
 		} break;
 		case PhrasePart::t_UpwardsAnchor: {
 		    PhrasePart_UpwardsAnchor * const phrase_part__upwards_anchor =
-			    static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr ());
+			    static_cast <PhrasePart_UpwardsAnchor*> (phrase_part.ptr());
 
-		    file->out ("        entry->is_jump = true;\n"
-			       "        entry->jump_grammar = create_").out (opts->header_name).out ("_"
-						).out (phrase_part__upwards_anchor->declaration_name).out (" ();\n");
-		    if (!phrase_part__upwards_anchor->jump_cb_name.isNull ()) {
-			file->out ("        entry->jump_cb = ").out (phrase_part__upwards_anchor->jump_cb_name).out (";\n");
+		    if (!file->print ("        entry->is_jump = true;\n"
+                                      "        entry->jump_grammar = create_", opts->header_name, "_",
+                                                       phrase_part__upwards_anchor->declaration_name, " ();\n"))
+                    {
+                        return Result::Failure;
+                    }
+
+		    if (phrase_part__upwards_anchor->jump_cb_name) {
+			if (!file->print ("        entry->jump_cb = ", phrase_part__upwards_anchor->jump_cb_name, ";\n"))
+                            return Result::Failure;
 		    }
-		    file->out ("        entry->jump_switch_grammar_index = "
-						).out (phrase_part__upwards_anchor->switch_grammar_index).out (";\n"
-			       "        entry->jump_compound_grammar_index = "
-						).out (phrase_part__upwards_anchor->compound_grammar_index).out (";\n");
+
+		    if (!file->print ("        entry->jump_switch_grammar_index = ",
+                                                       phrase_part__upwards_anchor->switch_grammar_index, ";\n"
+                                      "        entry->jump_compound_grammar_index = ",
+                                                       phrase_part__upwards_anchor->compound_grammar_index, ";\n"))
+                    {
+                        return Result::Failure;
+                    }
 		} break;
 		case PhrasePart::t_Label: {
-		    abortIfReached ();
+                    unreachable ();
 		} break;
 		default:
-		    abortIfReached ();
+                    unreachable ();
 	    }
 
-	    file->out ("        grammar->grammar_entries.append (entry);\n"
-		       "    }\n"
-		       "\n");
+	    if (!file->print ("        grammar->grammar_entries.append (entry);\n"
+                              "    }\n"
+                              "\n"))
+            {
+                return Result::Failure;
+            }
 	}
     }
 
-    file->out ("    return grammar.ptr ();\n"
-	       "}\n"
-	       "\n");
+    if (!file->print ("    return grammar;\n"
+                      "}\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
   // Dumping
 
-//    if (!global_grammar)
-//	file->out ("static ");
-    file->out ("void\n"
-	       "dump_").out (opts->header_name).out ("_")
-		       .out (global_grammar ? "grammar" : phrase_prefix->getData ())
-		       .out (" (").out (opts->capital_header_name).out ("_").out (phrase_prefix)
-		       .out(" const *el").out (global_grammar ? "" : ", Size nest_level").out (")\n"
-	       "{\n"
-	       "    if (el == NULL) {\n");
+    if (!file->print ("void\n"
+                      "dump_", opts->header_name, "_",
+                              (global_grammar ? ConstMemory ("grammar") : phrase_prefix->mem()),
+                              " (", opts->capital_header_name, "_", phrase_prefix,
+                              " const *el", (global_grammar ? ConstMemory ("") : ConstMemory (", Size nest_level")), ")\n"
+                      "{\n"
+                      "    if (!el) {\n"))
+    {
+        return Result::Failure;
+    }
 
-    if (!global_grammar)
-	file->out ("        print_tab (errf, nest_level);\n");
-    else
-	file->out ("        print_tab (errf, 0);\n");
+    if (!global_grammar) {
+	if (!file->print ("        print_tab (errs, nest_level);\n"))
+            return Result::Failure;
+    } else {
+	if (!file->print ("        print_tab (errs, 0);\n"))
+            return Result::Failure;
+    }
 
-    file->out ("        errf->print (\"(null) ").out (phrase_prefix).out ("\\n\");\n"
-	       "        return;\n"
-	       "    }\n"
-	       "\n");
+    if (!file->print ("        errs->print (\"(null) ", phrase_prefix, "\\n\");\n"
+                      "        return;\n"
+                      "    }\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
-    if (!global_grammar)
-	file->out ("    print_tab (errf, nest_level);\n");
+    if (!global_grammar) {
+	if (!file->print ("    print_tab (errs, nest_level);\n"))
+            return Result::Failure;
+    }
 
-    file->out ("    errf->print (\"").out (phrase_prefix).out ("\\n\");\n"
-	       "\n");
+    if (!file->print ("    errs->print (\"", phrase_prefix, "\\n\");\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
     {
-	List< Ref<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
+	List< StRef<PhrasePart> >::DataIterator phrase_part_iter (phrase->phrase_parts);
 	while (!phrase_part_iter.done ()) {
-	    Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
+	    StRef<PhrasePart> &phrase_part = phrase_part_iter.next ();
 	    switch (phrase_part->phrase_part_type) {
 		case PhrasePart::t_Phrase: {
-		    PhrasePart_Phrase * const &phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
+		    PhrasePart_Phrase * const phrase_part__phrase =
+                            static_cast <PhrasePart_Phrase*> (phrase_part.ptr());
 
 		    if (phrase_part->seq) {
-			file->out ("    {\n"
-				   "        List<").out (opts->capital_header_name).out ("_")
-						  .out (phrase_part__phrase->decl_phrases->declaration_name)
-						  .out ("*>::DataIterator sub_iter (el->")
-						  .out (phrase_part__phrase->name).out ("s);\n"
-				   "        while (!sub_iter.done ()) {\n"
-				   "            ").out (opts->capital_header_name).out ("_")
-							.out (phrase_part__phrase->decl_phrases->declaration_name)
-							.out (" *&sub = sub_iter.next ();\n"
-				   "            dump_").out (opts->header_name).out ("_")
-							.out (phrase_part__phrase->decl_phrases->declaration_name)
-							.out (" (sub, ").out (global_grammar ? "1" : "nest_level + 1").out (");\n"
-				   "        }\n"
-				   "    }\n"
-				   "\n");
+			if (!file->print ("    {\n"
+                                          "        List<", opts->capital_header_name, "_",
+                                                         phrase_part__phrase->decl_phrases->declaration_name,
+                                                         "*>::DataIterator sub_iter (el->",
+                                                         phrase_part__phrase->name, "s);\n"
+                                          "        while (!sub_iter.done ()) {\n"
+                                          "            ", opts->capital_header_name, "_",
+                                                               phrase_part__phrase->decl_phrases->declaration_name,
+                                                               " *&sub = sub_iter.next ();\n"
+                                          "            dump_", opts->header_name, "_",
+                                                               phrase_part__phrase->decl_phrases->declaration_name,
+                                                               " (sub, ", (global_grammar ? ConstMemory ("1") : ConstMemory ("nest_level + 1")), ");\n"
+                                          "        }\n"
+                                          "    }\n"
+                                          "\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    } else {
-			file->out ("    dump_").out (opts->header_name).out ("_")
-						.out (phrase_part__phrase->decl_phrases->declaration_name)
-						.out (" (el->").out (phrase_part__phrase->name).out (", ")
-						.out (global_grammar ? "1" : "nest_level + 1").out (");\n"
-				   "\n");
+			if (!file->print ("    dump_", opts->header_name, "_",
+                                                       phrase_part__phrase->decl_phrases->declaration_name,
+                                                       " (el->", phrase_part__phrase->name, ", ",
+                                                       (global_grammar ? ConstMemory ("1") : ConstMemory ("nest_level + 1")), ");\n"
+                                          "\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		} break;
 		case PhrasePart::t_Token: {
-		    PhrasePart_Token * const &phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
+		    PhrasePart_Token * const phrase_part__token =
+                            static_cast <PhrasePart_Token*> (phrase_part.ptr());
 
-		    if (!global_grammar)
-			file->out ("    print_tab (errf, nest_level + 1);\n");
+		    if (!global_grammar) {
+			if (!file->print ("    print_tab (errs, nest_level + 1);\n"))
+                            return Result::Failure;
+                    }
 
-		    file->out ("    errf->print (\"token: ").out (phrase_part__token->token);
+		    if (!file->print ("    errs->print (\"token: ", phrase_part__token->token))
+                        return Result::Failure;
+
 		    if (phrase_part->opt || phrase_part->seq) {
-			if (phrase_part->opt)
-			    file->out ("_opt");
-			if (phrase_part->seq)
-			    file->out ("_seq");
+			if (phrase_part->opt) {
+			    if (!file->print ("_opt"))
+                                return Result::Failure;
+                        }
+
+			if (phrase_part->seq) {
+			    if (!file->print ("_seq"))
+                                return Result::Failure;
+                        }
 		    }
-		    file->out ("\\n\");\n");
+
+		    if (!file->print ("\\n\");\n"))
+                        return Result::Failure;
 		} break;
 		case PhrasePart::t_AcceptCb: {
 		  // No-op
@@ -454,347 +595,391 @@ compileSource_Phrase (File *file,
 		  // No-op
 		} break;
 		default:
-		    abortIfReached ();
+                    unreachable ();
 	    }
 	}
     }
 
-    file->out ("}\n"
-	       "\n");
+    if (!file->print ("}\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
+
+    return Result::Success;
 }
 
-static void
-compileSource_Alias (File *file,
-		     Declaration_Phrases *decl_phrases,
-		     CompilationOptions const *opts,
-		     bool has_begin,
-		     bool has_match,
-		     bool has_accept)
+static mt_throws Result
+compileSource_Alias (File                     * const mt_nonnull file,
+		     Declaration_Phrases      * const mt_nonnull decl_phrases,
+		     CompilationOptions const * const opts,
+		     bool                       const has_begin,
+		     bool                       const has_match,
+		     bool                       const has_accept)
 {
     Declaration const * const decl = decl_phrases;
 
-    abortIf (!decl_phrases->is_alias);
+    assert (decl_phrases->is_alias);
 
-//    const char *decl_name;
-//    const char *lowercase_decl_name;
     bool global_grammar;
-    abortIf (decl->declaration_name.isNull ());
-    if (compareStrings (decl->declaration_name->getData (), "*")) {
-//	decl_name = "Grammar";
-//	lowercase_decl_name = "grammar";
+    assert (decl->declaration_name);
+    if (equal (decl->declaration_name->mem(), "*"))
 	global_grammar = true;
-    } else {
-//	decl_name = decl->declaration_name->getData ();
-//	lowercase_decl_name = decl->lowercase_declaration_name->getData ();
+    else
 	global_grammar = false;
+
+    StRef<String> const phrase_prefix = decl->declaration_name;
+
+    if (!global_grammar) {
+	if (!file->print ("static "))
+            return Result::Failure;
     }
 
-    // TODO
-    Ref<String> phrase_prefix = decl->declaration_name;
+    if (!file->print ("StRef<Grammar>\n"
+                      "create_", opts->header_name, "_", (global_grammar ? ConstMemory ("grammar") : phrase_prefix->mem()), " ()\n"
+                      "{\n"
+                      "    static StRef<Grammar_Alias> grammar;\n"
+                      "    if (grammar)\n"
+                      "        return grammar;\n"
+                      "\n"
+                      "    grammar = st_grab (new (std::nothrow) Grammar_Alias);\n"
+                      "    grammar->name = st_grab (new (std::nothrow) String (\"", phrase_prefix, "\"));\n"
+                      "    grammar->aliased_grammar = create_", opts->header_name, "_", decl_phrases->aliased_name, " ();\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
-    if (!global_grammar)
-	file->out ("static ");
-    file->out ("Ref<Grammar>\n"
-	       "create_").out (opts->header_name).out ("_").out (global_grammar ? "grammar" : phrase_prefix->getData ()).out (" ()\n"
-	       "{\n"
-	       "    static Ref<Grammar_Alias> grammar;\n"
-	       "    if (!grammar.isNull ())\n"
-	       "        return grammar.ptr ();\n"
-	       "\n"
-	       "    grammar = grab (new Grammar_Alias);\n"
-	       "    grammar->name = String::forData (\"").out (phrase_prefix).out ("\");\n"
-	       "    grammar->aliased_grammar = create_").out (opts->header_name).out ("_").out (decl_phrases->aliased_name).out (" ();\n"
-	       "\n");
+    if (has_begin) {
+	if (!file->print ("    grammar->begin_func = ", opts->header_name, "_", phrase_prefix, "_begin_func;\n"))
+            return Result::Failure;
+    }
 
-    if (has_begin)
-	file->out ("    grammar->begin_func = ").out (opts->header_name).out ("_").out (phrase_prefix).out ("_begin_func;\n");
-    if (has_match)
-	file->out ("    grammar->match_func = __pargen_").out (opts->header_name).out ("_").out (phrase_prefix).out ("_match_func;\n");
-    if (has_accept)
-	file->out ("    grammar->accept_func = __pargen_").out (opts->header_name).out ("_").out (phrase_prefix).out ("_accept_func;\n");
+    if (has_match) {
+	if (!file->print ("    grammar->match_func = __pargen_", opts->header_name, "_", phrase_prefix, "_match_func;\n"))
+            return Result::Failure;
+    }
 
-    file->out ("\n");
+    if (has_accept) {
+	if (!file->print ("    grammar->accept_func = __pargen_", opts->header_name, "_", phrase_prefix, "_accept_func;\n"))
+            return Result::Failure;
+    }
 
-    file->out ("    return grammar.ptr ();\n"
-	       "}\n"
-	       "\n");
+    if (!file->print ("\n"
+                      "    return grammar;\n"
+                      "}\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
-#if 0
-  // Dumping
-
-    file->out ("void\n"
-	       "dump_").out (opts->header_name).out ("_").out (global_grammar ? "grammar" : phrase_prefix->getData ()).out (" (").out (opts->capital_header_name).out ("_").out (phrase_prefix).out(" const *el").out (global_grammar ? "" : ", Size nest_level").out (")\n"
-	       "{\n"
-	       "    if (el == NULL) {\n");
-
-    if (!global_grammar)
-	file->out ("        print_tab (errf, nest_level);\n");
-    else
-	file->out ("        print_tab (errf, 0);\n");
-
-    file->out ("        errf->print (\"(null) ").out (phrase_prefix).out ("\\n\");\n"
-	       "        return;\n"
-	       "    }\n"
-	       "\n");
-
-    if (!global_grammar)
-	file->out ("    print_tab (errf, nest_level);\n");
-
-    file->out ("    errf->print (\"").out (phrase_prefix).out ("\\n\");\n"
-	       "\n");
-
-    file->out ("}\n"
-	       "\n");
-#endif
+    return Result::Success;
 }
 
-void
-compileSource (File *file,
-	       PargenTask const * pargen_task,
-	       CompilationOptions const *opts)
-    throw (CompilationException,
-	   IOException,
-	   InternalException)
+mt_throws Result
+compileSource (File                     * const mt_nonnull file,
+	       PargenTask const         * const mt_nonnull pargen_task,
+	       CompilationOptions const * const mt_nonnull opts)
 {
-    abortIf (file == NULL ||
-	     pargen_task == NULL ||
-	     opts == NULL);
+    assert (file && pargen_task && opts);
 
-    file->out ("#include <mycpp/util.h>\n"
-	       "#include <mycpp/io.h>\n"
-	       "\n"
-	       "#include \"").out (opts->header_name).out ("_pargen.h\"\n"
-	       "\n"
-	       "using namespace MyCpp;\n"
-	       "using namespace Pargen;\n"
-	       "\n"
-	       "namespace ").out (opts->capital_namespace_name).out (" {\n"
-	       "\n"
-	       "static void\n"
-	       "print_whsp (File *file,\n"
-	       "            Size num_spaces)\n"
-	       "{\n"
-	       "    for (Size i = 0; i < num_spaces; i++)\n"
-	       "        file->print (\" \");\n"
-	       "}\n"
-	       "\n"
-	       "static void\n"
-	       "print_tab (File *file,\n"
-	       "           Size nest_level)\n"
-	       "{\n"
-	       "    print_whsp (file, nest_level * 1);\n"
-	       "}\n"
-	       "\n");
-
+    if (!file->print ("#include <libmary/libmary.h>\n"
+                      "\n"
+                      "#include \"", opts->header_name, "_pargen.h\"\n"
+                      "\n"
+                      "using namespace M;\n"
+                      "using namespace Pargen;\n"
+                      "\n"
+                      "namespace ", opts->capital_namespace_name, " {\n"
+                      "\n"
+                      "\n"
+                      "static void\n"
+                      "print_whsp (OutputStream *file,\n"
+                      "            Size num_spaces)\n"
+                      "{\n"
+                      "    for (Size i = 0; i < num_spaces; i++)\n"
+                      "        file->print (\" \");\n"
+                      "}\n"
+                      "\n"
+                      "static void\n"
+                      "print_tab (OutputStream *file,\n"
+                      "           Size nest_level)\n"
+                      "{\n"
+                      "    print_whsp (file, nest_level * 1);\n"
+                      "}\n"
+                      "\n"))
     {
-	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
-	while (!decl_iter.done ()) {
-	    Ref<Declaration> &decl = decl_iter.next ();
-	    if (decl->declaration_type != Declaration::t_Phrases)
-		continue;
-
-	    if (compareStrings (decl->declaration_name->getData (), "*"))
-		continue;
-
-	    file->out ("static Ref<Grammar> create_").out (opts->header_name).out ("_").out (decl->declaration_name).out (" ();\n");
-//	    file->out ("static void dump_").out (opts->header_name).out ("_").out (decl->declaration_name).out (" (").out (opts->capital_header_name).out ("_").out (decl->declaration_name).out (" const *, Size);\n");
-	}
-	file->out ("\n");
+        return Result::Failure;
     }
 
     {
-	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
+	List< StRef<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	while (!decl_iter.done ()) {
-	    Ref<Declaration> &decl = decl_iter.next ();
+	    StRef<Declaration> &decl = decl_iter.next ();
+	    if (decl->declaration_type != Declaration::t_Phrases)
+		continue;
+
+	    if (equal (decl->declaration_name->mem(), "*"))
+		continue;
+
+	    if (!file->print ("static StRef<Grammar> create_", opts->header_name, "_", decl->declaration_name, " ();\n"))
+                return Result::Failure;
+	}
+	if (!file->print ("\n"))
+            return Result::Failure;
+    }
+
+    {
+	List< StRef<Declaration> >::DataIterator decl_iter (pargen_task->decls);
+	while (!decl_iter.done ()) {
+	    StRef<Declaration> &decl = decl_iter.next ();
 
 	    if (decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
-	    Declaration_Phrases * const decl_phrases = static_cast <Declaration_Phrases*> (decl.ptr ());
+	    Declaration_Phrases * const decl_phrases =
+                    static_cast <Declaration_Phrases*> (decl.ptr());
 
-	    const char *decl_name;
-	    const char *lowercase_decl_name;
+	    ConstMemory decl_name;
+	    ConstMemory lowercase_decl_name;
 	    bool global_grammar;
-	    abortIf (decl->declaration_name.isNull ());
-	    if (compareStrings (decl->declaration_name->getData (), "*")) {
-		decl_name = "Grammar";
-		lowercase_decl_name = "grammar";
+	    assert (decl->declaration_name);
+	    if (equal (decl->declaration_name->mem(), "*")) {
+		decl_name = ConstMemory ("Grammar");
+		lowercase_decl_name = ConstMemory ("grammar");
 		global_grammar = true;
 	    } else {
-		decl_name = decl->declaration_name->getData ();
-		lowercase_decl_name = decl->lowercase_declaration_name->getData ();
+		decl_name = decl->declaration_name->mem();
+		lowercase_decl_name = decl->lowercase_declaration_name->mem();
 		global_grammar = false;
 	    }
 
-	    const char *elem_name = decl_name;
+	    ConstMemory elem_name = decl_name;
 	    if (decl_phrases->is_alias)
-		elem_name = decl_phrases->deep_aliased_name->getData ();
+		elem_name = decl_phrases->deep_aliased_name->mem();
 
 	    bool has_begin = false;
-	    if (!decl_phrases->callbacks.lookup ("begin").isNull ()) {
+	    if (!decl_phrases->callbacks.lookup ("begin").isNull()) {
 		has_begin = true;
-		file->out ("void ").out (opts->header_name).out ("_").out (decl_name).out ("_begin_func (\n"
-			   "        void *data);\n"
-			   "\n");
+		if (!file->print ("void ", opts->header_name, "_", decl_name, "_begin_func (\n"
+                                  "        void *data);\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 
 	    bool has_match = false;
-	    if (!decl_phrases->callbacks.lookup ("match").isNull ()) {
+	    if (!decl_phrases->callbacks.lookup ("match").isNull()) {
 		has_match = true;
-		file->out ("bool ").out (opts->header_name).out ("_").out (decl_name).out ("_match_func (\n"
-			   "        ").out (opts->capital_header_name).out ("_").out (elem_name).out (" *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data);\n"
-			   "\n"
-			   "bool __pargen_").out (opts->header_name).out ("_").out (decl_name).out ("_match_func (\n"
-			   "        ParserElement *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data)\n"
-			   "{\n"
-			   "    ").out (opts->capital_header_name).out ("Element * const &_el = static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n"
-			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (elem_name).out (");\n"
-			   "\n"
-			   "    ").out (opts->capital_header_name).out ("_").out (elem_name).out (" * const &el = static_cast <").out (opts->capital_header_name).out ("_").out (elem_name).out ("*> (_el);\n"
-			   "\n"
-			   "    return ").out (opts->header_name).out ("_").out (decl_name).out ("_match_func (el, parser_control, data);\n"
-			   "}\n"
-			   "\n");
+		if (!file->print ("bool ", opts->header_name, "_", decl_name, "_match_func (\n"
+                                  "        ", opts->capital_header_name, "_", elem_name, " *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data);\n"
+                                  "\n"
+                                  "bool __pargen_", opts->header_name, "_", decl_name, "_match_func (\n"
+                                  "        ParserElement *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data)\n"
+                                  "{\n"
+                                  "    ", opts->capital_header_name, "Element * const &_el = "
+                                          "static_cast <", opts->capital_header_name, "Element*> (parser_element);\n"
+                                  "    assert (_el->", opts->header_name, "_element_type == ",
+                                          opts->capital_header_name, "Element::t_", elem_name, ");\n"
+                                  "\n"
+                                  "    ", opts->capital_header_name, "_", elem_name, " * const &el = static_cast <",
+                                          opts->capital_header_name, "_", elem_name, "*> (_el);\n"
+                                  "\n"
+                                  "    return ", opts->header_name, "_", decl_name, "_match_func (el, parser_control, data);\n"
+                                  "}\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 
 	    bool has_accept = false;
-	    if (!decl_phrases->callbacks.lookup ("accept").isNull ()) {
+	    if (!decl_phrases->callbacks.lookup ("accept").isNull()) {
 		has_accept = true;
-		file->out ("void ").out (opts->header_name).out ("_").out (decl_name).out ("_accept_func (\n"
-			   "        ").out (opts->capital_header_name).out ("_").out (elem_name).out (" *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data);\n"
-			   "\n"
-			   "void __pargen_").out (opts->header_name).out ("_").out (decl_name).out ("_accept_func (\n"
-			   "        ParserElement *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data)\n"
-			   "{\n"
-			   "    if (parser_element == NULL) {\n"
-			   "        ").out (opts->header_name).out ("_").out (decl_name).out ("_accept_func (NULL, parser_control, data);\n"
-			   "        return;\n"
-			   "    }\n"
-			   "\n"
-			   "    ").out (opts->capital_header_name).out ("Element * const &_el = static_cast <").out (opts->capital_header_name).out ("Element*> (parser_element);\n"
-			   "    abortIf (_el->").out (opts->header_name).out ("_element_type != ").out (opts->capital_header_name).out ("Element::t_").out (elem_name).out (");\n"
-			   "\n"
-			   "    ").out (opts->capital_header_name).out ("_").out (elem_name).out (" * const &el = static_cast <").out (opts->capital_header_name).out ("_").out (elem_name).out ("*> (_el);\n"
-			   "\n"
-			   "    ").out (opts->header_name).out ("_").out (decl_name).out ("_accept_func (el, parser_control, data);\n"
-			   "}\n"
-			   "\n");
+		if (!file->print ("void ", opts->header_name, "_", decl_name, "_accept_func (\n"
+                                  "        ", opts->capital_header_name, "_", elem_name, " *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data);\n"
+                                  "\n"
+                                  "void __pargen_", opts->header_name, "_", decl_name, "_accept_func (\n"
+                                  "        ParserElement *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data)\n"
+                                  "{\n"
+                                  "    if (!parser_element) {\n"
+                                  "        ", opts->header_name, "_", decl_name, "_accept_func (NULL, parser_control, data);\n"
+                                  "        return;\n"
+                                  "    }\n"
+                                  "\n"
+                                  "    ", opts->capital_header_name, "Element * const &_el = "
+                                          "static_cast <", opts->capital_header_name, "Element*> (parser_element);\n"
+                                  "    assert (_el->", opts->header_name, "_element_type == ",
+                                          opts->capital_header_name, "Element::t_", elem_name, ");\n"
+                                  "\n"
+                                  "    ", opts->capital_header_name, "_", elem_name, " * const &el = "
+                                          "static_cast <", opts->capital_header_name, "_", elem_name, "*> (_el);\n"
+                                  "\n"
+                                  "    ", opts->header_name, "_", decl_name, "_accept_func (el, parser_control, data);\n"
+                                  "}\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 
-	    if (decl_phrases->phrases.getNumElements () > 1) {
+	    if (decl_phrases->phrases.getNumElements() > 1) {
 		{
-		    List< Ref<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
+		    List< StRef<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
 		    while (!phrase_iter.done ()) {
-			Ref<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
-			abortIf (phrase_record.isNull () ||
-				 phrase_record->phrase.isNull () ||
-				 phrase_record->phrase->phrase_name.isNull ());
-			Phrase *phrase = phrase_record->phrase;
+			StRef<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
+			assert (phrase_record
+				&& phrase_record->phrase
+				&& phrase_record->phrase->phrase_name);
+			Phrase * const phrase = phrase_record->phrase;
 			compileSource_Phrase (file,
 					      phrase,
 					      opts,
-					      ConstMemoryDesc (decl_name, countStrLength (decl_name)),
-					      ConstMemoryDesc (lowercase_decl_name, countStrLength (lowercase_decl_name)),
-					      phrase->phrase_name->getMemoryDesc (),
-					      true /* subtype */,
+					      decl_name,
+					      lowercase_decl_name,
+					      phrase->phrase_name->mem(),
+					      true  /* subtype */,
 					      false /* has_begin */,
 					      false /* has_match */,
 					      false /* has_accept */);
 		    }
 		}
 
-		if (!compareStrings (decl->declaration_name->getData (), "*"))
-		    file->out ("static ");
-		file->out ("Ref<Grammar>\n"
-			   "create_").out (opts->header_name).out ("_").out (global_grammar ? "grammar" : decl_name).out (" ()\n"
-			   "{\n"
-			   "    static Ref<Grammar_Switch> grammar;\n"
-			   "    if (!grammar.isNull ())\n"
-			   "        return grammar.ptr ();\n"
-			   "\n"
-			   "    grammar = grab (new Grammar_Switch ());\n"
-			   "    grammar->name = String::forData (\"").out (decl_name).out ("\");\n");
+		if (!equal (decl->declaration_name->mem(), "*")) {
+		    if (!file->print ("static "))
+                        return Result::Failure;
+                }
 
-		if (has_begin)
-		    file->out ("    grammar->begin_func = ").out (opts->header_name).out ("_").out (decl_name).out ("_begin_func;\n");
-		if (has_match)
-		    file->out ("    grammar->match_func = __pargen_").out (opts->header_name).out ("_").out (decl_name).out ("_match_func;\n");
-		if (has_accept)
-		    file->out ("    grammar->accept_func = __pargen_").out (opts->header_name).out ("_").out (decl_name).out ("_accept_func;\n");
+		if (!file->print ("StRef<Grammar>\n"
+                                  "create_", opts->header_name, "_", (global_grammar ? ConstMemory ("grammar") : decl_name), " ()\n"
+                                  "{\n"
+                                  "    static StRef<Grammar_Switch> grammar;\n"
+                                  "    if (grammar)\n"
+                                  "        return grammar;\n"
+                                  "\n"
+                                  "    grammar = st_grab (new (std::nothrow) Grammar_Switch ());\n"
+                                  "    grammar->name = st_grab (new (std::nothrow) String (\"", decl_name, "\"));\n"))
+                {
+                    return Result::Failure;
+                }
 
-		file->out ("\n");
+		if (has_begin) {
+		    if (!file->print ("    grammar->begin_func = ", opts->header_name, "_", decl_name, "_begin_func;\n"))
+                        return Result::Failure;
+                }
+
+		if (has_match) {
+		    if (!file->print ("    grammar->match_func = __pargen_", opts->header_name, "_", decl_name, "_match_func;\n"))
+                        return Result::Failure;
+                }
+
+		if (has_accept) {
+		    if (!file->print ("    grammar->accept_func = __pargen_", opts->header_name, "_", decl_name, "_accept_func;\n"))
+                        return Result::Failure;
+                }
+
+		if (!file->print ("\n"))
+                    return Result::Failure;
 
 		{
-		    List< Ref<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
+		    List< StRef<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
 		    while (!phrase_iter.done ()) {
-			Ref<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
-			Phrase *phrase = phrase_record->phrase;
-			file->out ("    {\n"
-				   "        Ref<SwitchGrammarEntry> entry = grab (new SwitchGrammarEntry ());\n"
-				   "        entry->grammar = create_").out (opts->header_name).out ("_").out (decl_name).out ("_").out (phrase->phrase_name).out (" ();\n");
+			StRef<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
+			Phrase * const phrase = phrase_record->phrase;
+			if (!file->print ("    {\n"
+                                          "        StRef<SwitchGrammarEntry> const entry = st_grab (new (std::nothrow) SwitchGrammarEntry ());\n"
+                                          "        entry->grammar = create_", opts->header_name, "_", decl_name, "_", phrase->phrase_name, " ();\n"))
+                        {
+                            return Result::Failure;
+                        }
 
-			List< Ref<String> >::DataIterator variant_iter (phrase_record->variant_names);
+			List< StRef<String> >::DataIterator variant_iter (phrase_record->variant_names);
 			while (!variant_iter.done ()) {
-			    Ref<String> &variant = variant_iter.next ();
-			    file->out ("    entry->variants.append (String::forData (\"").out (variant).out ("\"));\n");
+			    StRef<String> &variant = variant_iter.next ();
+			    if (!file->print ("    entry->variants.append (st_grab (new (std::nothrow) String (\"", variant, "\")));\n"))
+                                return Result::Failure;
 			}
 
-			file->out ("\n"
-				   "        grammar->grammar_entries.append (entry);\n"
-				   "    }\n"
-				   "\n");
+			if (!file->print ("\n"
+                                          "        grammar->grammar_entries.append (entry);\n"
+                                          "    }\n"
+                                          "\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		}
 
-		file->out ("    return grammar.ptr ();\n"
-			   "}\n"
-			   "\n");
+		if (!file->print ("    return grammar;\n"
+                                  "}\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 
 	      // Dumping
 
-//		if (!global_grammar)
-//		    file->out ("static ");
-		file->out ("void\n"
-			   "dump_").out (opts->header_name).out ("_").out (global_grammar ? "grammar" : decl_name).out (" (").out (opts->capital_header_name).out ("_").out (decl_name).out(" const *el").out (global_grammar ? "" : ", Size nest_level").out (")\n"
-			   "{\n"
-			   "    if (el == NULL) {\n");
+		if (!file->print ("void\n"
+                                  "dump_", opts->header_name, "_", (global_grammar ? ConstMemory ("grammar") : decl_name), " (",
+                                          opts->capital_header_name, "_", decl_name, " const *el",
+                                          (global_grammar ? ConstMemory() : ConstMemory (", Size nest_level")), ")\n"
+                                  "{\n"
+                                  "    if (!el) {\n"))
+                {
+                    return Result::Failure;
+                }
 
-		if (!global_grammar)
-		    file->out ("        print_tab (errf, nest_level);\n");
-		else
-		    file->out ("        print_tab (errf, 0);\n");
+		if (!global_grammar) {
+		    if (!file->print ("        print_tab (errs, nest_level);\n"))
+                        return Result::Failure;
+                } else {
+		    if (!file->print ("        print_tab (errs, 0);\n"))
+                        return Result::Failure;
+                }
 
-		file->out ("        errf->print (\"(null) ").out (decl_name).out ("\\n\");\n"
-			   "        return;\n"
-			   "    }\n"
-			   "\n"
-			   "    switch (el->").out (lowercase_decl_name).out ("_type) {\n");
+		if (!file->print ("        errs->print (\"(null) ", decl_name, "\\n\");\n"
+                                  "        return;\n"
+                                  "    }\n"
+                                  "\n"
+                                  "    switch (el->", lowercase_decl_name, "_type) {\n"))
+                {
+                    return Result::Failure;
+                }
 
 		{
-		    List< Ref<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
+		    List< StRef<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
 		    while (!phrase_iter.done ()) {
-			Ref<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
-			Phrase *phrase = phrase_record->phrase;
+			StRef<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
+			Phrase * const phrase = phrase_record->phrase;
 
-			file->out ("        case ").out (opts->capital_header_name).out ("_").out (decl_name).out ("::t_").out (phrase->phrase_name).out (":\n"
-				   "            dump_").out (opts->header_name).out ("_").out (decl_name).out ("_").out (phrase->phrase_name).out (" (static_cast <").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase->phrase_name).out (" const *> (el), ").out (global_grammar ? "0" : "nest_level + 0").out (");\n"
-				   "            break;\n");
+			if (!file->print ("        case ", opts->capital_header_name, "_", decl_name, "::t_", phrase->phrase_name, ":\n"
+                                          "            dump_", opts->header_name, "_", decl_name, "_", phrase->phrase_name, " ("
+                                                  "static_cast <", opts->capital_header_name, "_", decl_name, "_", phrase->phrase_name, " const *> (el), ",
+                                                  (global_grammar ? ConstMemory ("0") : ConstMemory ("nest_level + 0")), ");\n"
+                                          "            break;\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		}
 
-		file->out ("        default:\n"
-			   "            abortIfReached ();\n"
-			   "    }\n"
-			   "}\n"
-			   "\n");
+		if (!file->print ("        default:\n"
+                                  "            unreachable ();\n"
+                                  "    }\n"
+                                  "}\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    } else {
 	      // The grammar consists of only one phrase.
 	      // Aliases go this way.
@@ -803,14 +988,14 @@ compileSource (File *file,
 		    compileSource_Alias (file, decl_phrases, opts, has_begin, has_match, has_accept);
 		} else {
 		    if (!decl_phrases->phrases.isEmpty ()) {
-			Ref<Phrase> &phrase = decl_phrases->phrases.first->data->phrase;
-			abortIf (phrase.isNull ());
+			StRef<Phrase> &phrase = decl_phrases->phrases.first->data->phrase;
+			assert (phrase);
 			compileSource_Phrase (file,
 					      phrase,
 					      opts,
-					      decl->declaration_name->getMemoryDesc (),
-					      decl->lowercase_declaration_name->getMemoryDesc (),
-					      ConstMemoryDesc (),
+					      decl->declaration_name->mem(),
+					      decl->lowercase_declaration_name->mem(),
+					      ConstMemory(),
 					      false /* subtype */,
 					      has_begin,
 					      has_match,
@@ -821,8 +1006,13 @@ compileSource (File *file,
 	}
     }
 
-    file->out ("}\n"
-	       "\n");
+    if (!file->print ("}\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
+
+    return Result::Success;
 }
 
 }

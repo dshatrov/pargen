@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,31 +17,33 @@
 */
 
 
-#ifndef __PARGEN__COMPILE_H__
-#define __PARGEN__COMPILE_H__
+#ifndef PARGEN__COMPILE__H__
+#define PARGEN__COMPILE__H__
 
-#include <mycpp/object.h>
-#include <mycpp/string.h>
+
+#include <libmary/libmary.h>
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-class CompilationOptions : public SimplyReferenced
+class CompilationOptions : public StReferenced
 {
 public:
-    Ref<String> module_name;
-    Ref<String> capital_module_name;
-    Ref<String> all_caps_module_name;
+    StRef<String> module_name;
+    StRef<String> capital_module_name;
+    StRef<String> all_caps_module_name;
 
-    Ref<String> capital_namespace_name;
+    StRef<String> capital_namespace_name;
 
-    Ref<String> header_name;
-    Ref<String> capital_header_name;
-    Ref<String> all_caps_header_name;
+    StRef<String> header_name;
+    StRef<String> capital_header_name;
+    StRef<String> all_caps_header_name;
 };
 
 }
 
-#endif /* __PARGEN__COMPILE_H__ */
+
+#endif /* PARGEN__COMPILE__H__ */
 

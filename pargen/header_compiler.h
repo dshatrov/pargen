@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,29 +17,27 @@
 */
 
 
-#ifndef __PARGEN__HEADER_COMPILER_H__
-#define __PARGEN__HEADER_COMPILER_H__
+#ifndef PARGEN__HEADER_COMPILER__H__
+#define PARGEN__HEADER_COMPILER__H__
 
-#include <mycpp/list.h>
-#include <mycpp/file.h>
+
+#include <libmary/libmary.h>
 
 #include <pargen/declarations.h>
 #include <pargen/pargen_task_parser.h>
 #include <pargen/compile.h>
-#include <pargen/compilation_exception.h>
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-void compileHeader (File *file,
-		    PargenTask const *pargen_task,
-		    CompilationOptions const *opts)
-	     throw (CompilationException,
-		    IOException,
-		    InternalException);
+mt_throws Result compileHeader (File                     *file,
+                                PargenTask const         *pargen_task,
+                                CompilationOptions const *opts);
 
 }
 
-#endif /* __PARGEN__HEADER_COMPILER_H__ */
+
+#endif /* PARGEN__HEADER_COMPILER__H__ */
 

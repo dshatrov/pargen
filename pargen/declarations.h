@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,30 +17,31 @@
 */
 
 
-#ifndef __PARGEN__DECLARATIONS_H__
-#define __PARGEN__DECLARATIONS_H__
+#ifndef PARGEN__DECLARATIONS__H__
+#define PARGEN__DECLARATIONS__H__
 
-#include <mycpp/mycpp.h>
+
+#include <libmary/libmary.h>
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
 // Declaration
 
-class Declaration : public SimplyReferenced
+class Declaration : public StReferenced
 {
 public:
     enum Type {
 	t_Phrases,
 	t_Callbacks
-//	t_Alias
     };
 
     const Type declaration_type;
 
-    Ref<String> declaration_name;
-    Ref<String> lowercase_declaration_name;
+    StRef<String> declaration_name;
+    StRef<String> lowercase_declaration_name;
 
     Declaration (Type type)
 	: declaration_type (type)
@@ -52,10 +53,10 @@ public:
 //     Declaration_Callbacks
 //         CallbackDecl
 
-class CallbackDecl : public SimplyReferenced
+class CallbackDecl : public StReferenced
 {
 public:
-    Ref<String> callback_name;
+    StRef<String> callback_name;
 };
 
 // Declaration
@@ -66,37 +67,32 @@ class Phrase;
 class Declaration_Phrases : public Declaration
 {
 public:
-    class PhraseRecord : public SimplyReferenced
+    class PhraseRecord : public StReferenced
     {
     public:
-	Ref<Phrase> phrase;
-	List< Ref<String> > variant_names;
+	StRef<Phrase> phrase;
+	List< StRef<String> > variant_names;
     };
 
-#if 0
-    Ref<String> begin_cb_name;
-    Bool begin_cb_repetition;
-#endif
-
     Bool is_alias;
-    Ref<String> aliased_name;
-    Ref<String> deep_aliased_name;
+    StRef<String> aliased_name;
+    StRef<String> deep_aliased_name;
     Declaration_Phrases *aliased_decl;
 
-    List< Ref<PhraseRecord> > phrases;
+    List< StRef<PhraseRecord> > phrases;
 
     // Used for detecting infinite grammar loops when linking upwards anchors.
     Size loop_id;
     Size decl_loop_id;
 
-    Map< Ref<CallbackDecl>,
+    Map< StRef<CallbackDecl>,
 	 MemberExtractor< CallbackDecl,
-			  Ref<String>,
+			  StRef<String>,
 			  &CallbackDecl::callback_name,
-			  MemoryDesc,
+			  Memory,
 			  AccessorExtractor< String,
-					     MemoryDesc,
-					     &String::getMemoryDesc > >,
+					     Memory,
+					     &String::mem > >,
 	 MemoryComparator<> >
 	    callbacks;
 
@@ -115,11 +111,11 @@ public:
 
 class PhrasePart;
 
-class Phrase : public SimplyReferenced
+class Phrase : public StReferenced
 {
 public:
-    Ref<String> phrase_name;
-    List< Ref<PhrasePart> > phrase_parts;
+    StRef<String> phrase_name;
+    List< StRef<PhrasePart> > phrase_parts;
 };
 
 // Declaration
@@ -127,7 +123,7 @@ public:
 //         Phrase
 //             PhrasePart
 
-class PhrasePart : public SimplyReferenced
+class PhrasePart : public StReferenced
 {
 public:
     enum Type {
@@ -144,10 +140,10 @@ public:
     Bool seq;
     Bool opt;
 
-    Ref<String> name;
+    StRef<String> name;
     Bool name_is_explicit;
 
-    Ref<String> toString ();
+    StRef<String> toString ();
 
     PhrasePart (Type type)
 	: phrase_part_type (type)
@@ -164,8 +160,8 @@ public:
 class PhrasePart_Phrase : public PhrasePart
 {
 public:
-    Ref<String> phrase_name;
-    Ref<Declaration_Phrases> decl_phrases;
+    StRef<String> phrase_name;
+    StRef<Declaration_Phrases> decl_phrases;
 
     PhrasePart_Phrase ()
 	: PhrasePart (PhrasePart::t_Phrase)
@@ -183,8 +179,8 @@ class PhrasePart_Token : public PhrasePart
 {
 public:
     // If null, then any token matches.
-    Ref<String> token;
-    Ref<String> token_match_cb;
+    StRef<String> token;
+    StRef<String> token_match_cb;
 
     PhrasePart_Token ()
 	: PhrasePart (PhrasePart::t_Token)
@@ -201,7 +197,7 @@ public:
 class PhrasePart_AcceptCb : public PhrasePart
 {
 public:
-    Ref<String> cb_name;
+    StRef<String> cb_name;
     Bool repetition;
 
     PhrasePart_AcceptCb ()
@@ -219,7 +215,7 @@ public:
 class PhrasePart_UniversalAcceptCb : public PhrasePart
 {
 public:
-    Ref<String> cb_name;
+    StRef<String> cb_name;
     Bool repetition;
 
     PhrasePart_UniversalAcceptCb ()
@@ -237,10 +233,10 @@ public:
 class PhrasePart_UpwardsAnchor : public PhrasePart
 {
 public:
-    Ref<String> declaration_name;
-    Ref<String> phrase_name;
-    Ref<String> label_name;
-    Ref<String> jump_cb_name;
+    StRef<String> declaration_name;
+    StRef<String> phrase_name;
+    StRef<String> label_name;
+    StRef<String> jump_cb_name;
 
     Size switch_grammar_index;
     Size compound_grammar_index;
@@ -262,7 +258,7 @@ public:
 class PhrasePart_Label : public PhrasePart
 {
 public:
-    Ref<String> label_name;
+    StRef<String> label_name;
 
     PhrasePart_Label ()
 	: PhrasePart (PhrasePart::t_Label)
@@ -276,7 +272,7 @@ public:
 class Declaration_Callbacks : public Declaration
 {
 public:
-    List< Ref<CallbackDecl> > callbacks;
+    List< StRef<CallbackDecl> > callbacks;
 
     Declaration_Callbacks ()
 	: Declaration (Declaration::t_Callbacks)
@@ -284,23 +280,8 @@ public:
     }
 };
 
-#if 0
-// Declaration
-//     Declaration_Alias
-
-class Declaration_Alias : public Declaration
-{
-public:
-    Ref<String> aliased_name;
-
-    Declaration_Alias ()
-	: Declaration (Declaration::t_Alias)
-    {
-    }
-};
-#endif
-
 }
 
-#endif /* __PARGEN__DECLARATIONS_H__ */
+
+#endif /* PARGEN__DECLARATIONS__H__ */
 

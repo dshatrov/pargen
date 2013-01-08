@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,18 +17,7 @@
 */
 
 
-// NO BOOST
-//#include <boost/unordered/unordered_set.hpp>
-//#include <boost/intrusive/list.hpp>
-//#include <boost/intrusive/avl_set.hpp>
-
-#include <mycpp/io.h>
-#include <mycpp/util.h>
-
 #include <pargen/parser.h>
-
-
-#define VSLAB_ACCEPTOR
 
 
 /* [DMS] This is probably among the worst pieces of code I have ever written.
@@ -38,7 +27,7 @@
 
 // Parsing trace, should be always enabled.
 // Enabled/disabled by parsing_state->debug_dump flag.
-#define DEBUG_PAR(a) a
+#define DEBUG_PAR(a) ;
 
 #define DEBUG(a) ;
 // Flow
@@ -69,826 +58,746 @@
 #define PARGEN_UPWARDS_JUMPS
 
 
-using namespace MyCpp;
-using namespace MyLang;
+using namespace M;
 
 namespace Pargen {
 
-Ref<ParserConfig>
+StRef<ParserConfig>
 createParserConfig (bool const upwards_jumps)
 {
-    Ref<ParserConfig> parser_config = grab (new ParserConfig);
+    StRef<ParserConfig> const parser_config = st_grab (new (std::nothrow) ParserConfig);
     parser_config->upwards_jumps = upwards_jumps;
     return parser_config;
 }
 
-Ref<ParserConfig>
+StRef<ParserConfig>
 createDefaultParserConfig ()
 {
     return createParserConfig (true /* upwards_jumps */);
 }
 
 namespace {
-    class ParsingState;
+class ParsingState;
 }
 
-static void pop_step (ParsingState *parsing_state,
-		      bool match,
-		      bool empty_match,
-		      bool negative_cache_update = true);
+static mt_throws Result pop_step (ParsingState * mt_nonnull parsing_state,
+                                  bool          match,
+                                  bool          empty_match,
+                                  bool          negative_cache_update = true);
 
 namespace {
+class ParsingStep : public StReferenced,
+                    public IntrusiveListElement<>
+{
+public:
+    typedef void (*AssignmentFunc) (ParserElement *parser_element,
+                                    void          *user_data);
 
-    class ParsingStep : public virtual SimplyReferenced,
-			public IntrusiveListElement<>
-    {
-    public:
-	typedef void (*AssignmentFunc) (ParserElement *parser_element,
-					void          *user_data);
+    enum Type {
+        t_Sequence,
+        t_Compound,
+        t_Switch,
+        t_Alias
+    };
 
-	enum Type {
-	    t_Sequence,
-	    t_Compound,
-	    t_Switch,
-	    t_Alias
-	};
+    const Type parsing_step_type;
 
-	const Type parsing_step_type;
-
-	Grammar *grammar;
+    Grammar *grammar;
 
 #ifndef VSLAB_ACCEPTOR
-	Ref<Acceptor> acceptor;
+    StRef<Acceptor> acceptor;
 #else
-	// TODO Why not use steps vstack to hold the acceptor?
-	VSlabRef<Acceptor> acceptor;
+    // TODO Why not use steps vstack to hold the acceptor?
+    VSlabRef<Acceptor> acceptor;
 #endif
-	Bool optional;
+    Bool optional;
 
-	// Initialized in push_step()
-	TokenStream::PositionMarker token_stream_pos;
+    // Initialized in push_step()
+    TokenStream::PositionMarker token_stream_pos;
 
-	Size go_right_count;
+    Size go_right_count;
 
-	VStack::Level vstack_level;
-	VStack::Level el_level;
+    VStack::Level vstack_level;
+    VStack::Level el_level;
 
-	ParsingStep (Type type)
-	    : parsing_step_type (type),
-	      grammar (NULL),
-	      go_right_count (0)
-	{
-	}
+    ParsingStep (Type type)
+        : parsing_step_type (type),
+          grammar (NULL),
+          go_right_count (0)
+    {
+    }
 
-	~ParsingStep ()
-	{
-	  DEBUG_INT (
-	    errf->print ("Pargen.ParsingStep.~()").pendl ();
-	  )
-	}
+    ~ParsingStep ()
+    {
+      DEBUG_INT (
+        errs->println (_func_);
+      )
+    }
+};
+
+typedef IntrusiveList<ParsingStep> ParsingStepList;
+
+class ParsingStep_Sequence : public ParsingStep
+{
+public:
+    // FIXME Memory leak + inefficient: use intrusive list.
+    List<ParserElement*> parser_elements;
+
+    ParsingStep_Sequence ()
+        : ParsingStep (ParsingStep::t_Sequence)
+    {
+    }
+};
+
+class ParsingStep_Compound : public ParsingStep
+{
+public:
+    List< StRef<CompoundGrammarEntry> >::Element *cur_subg_el;
+
+    Bool got_jump;
+    Grammar *jump_grammar;
+    Grammar::JumpFunc jump_cb;
+    List< StRef<SwitchGrammarEntry> >::Element *jump_switch_grammar_entry;
+    List< StRef<CompoundGrammarEntry> >::Element *jump_compound_grammar_entry;
+
+    Bool jump_performed;
+
+    // We should be able to detect left-recursive grammars for "a: b_opt a c"
+    // cases when b_opt doesn't match, hence this hint.
+    Grammar *lr_parent;
+
+    ParserElement *parser_element;
+
+    Bool got_nonoptional_match;
+
+    ParsingStep_Compound ()
+        : ParsingStep (ParsingStep::t_Compound),
+          jump_grammar (NULL),
+          jump_cb (NULL),
+          jump_switch_grammar_entry (NULL),
+          jump_compound_grammar_entry (NULL),
+          lr_parent (NULL),
+          parser_element (NULL)
+    {
+    }
+};
+
+class ParsingStep_Switch : public ParsingStep
+{
+public:
+    enum State {
+        // Parsing non-left-recursive grammars
+        State_NLR,
+        // Parsing left-recursive grammars
+        State_LR
     };
 
-    typedef IntrusiveList<ParsingStep> ParsingStepList;
+    State state;
 
-    class ParsingStep_Sequence : public ParsingStep
+    Bool got_empty_nlr_match;
+    Bool got_nonempty_nlr_match;
+    Bool got_lr_match;
+
+    List< StRef<SwitchGrammarEntry> >::Element *cur_nlr_el;
+    List< StRef<SwitchGrammarEntry> >::Element *cur_lr_el;
+
+#ifdef VSLAB_ACCEPTOR
+    ParserElement *nlr_parser_element;
+    ParserElement *parser_element;
+#else
+    StRef<ParserElement> nlr_parser_element;
+    StRef<ParserElement> parser_element;
+#endif
+
+    ParsingStep_Switch ()
+        : ParsingStep (ParsingStep::t_Switch),
+          nlr_parser_element (NULL),
+          parser_element (NULL)
     {
-    public:
-	// FIXME Memory leak + inefficient: use intrusive list.
-	List<ParserElement*> parser_elements;
+    }
+};
 
-	ParsingStep_Sequence ()
-	    : ParsingStep (ParsingStep::t_Sequence)
-	{
-	}
-    };
+class ParsingStep_Alias : public ParsingStep
+{
+public:
+    ParserElement *parser_element;
 
-    class ParsingStep_Compound : public ParsingStep
+    ParsingStep_Alias ()
+        : ParsingStep (ParsingStep::t_Alias),
+          parser_element (NULL)
     {
-    public:
-	List< Ref<CompoundGrammarEntry> >::Element *cur_subg_el;
+    }
+};
 
-	Bool got_jump;
-	Grammar *jump_grammar;
-	Grammar::JumpFunc jump_cb;
-	List< Ref<SwitchGrammarEntry> >::Element *jump_switch_grammar_entry;
-	List< Ref<CompoundGrammarEntry> >::Element *jump_compound_grammar_entry;
+// Positive cache is an n-ary tree with chains of matching phrases.
+// Nodes of the tree refer to grammars.
+//
+// Consider the following grammar:
+//
+//     a: b c
+//     b: [b]
+//     c: d e
+//     d: [d]
+//     e: [e]
+//     f: [f]
+//
+// And input: "b d e f".
+//
+// Here's the state of the cache after parsing this input:
+//
+//        +--->a------------------------->f
+//        |                              /^
+//        |      +----->c---------------/ |
+//        |      |                        |
+// (root)-+--->b-+----->d------->e--------+
+//
+// Tokens:     o--------o--------o--------o
+//             b        d        e        f
+//
+// Positive cache is cleaned at cache cleanup points. Such points are
+// specified explicitly in the grammar. They are usually points of
+// no return, after wich match failures mean syntax errors in input.
+//
+class PositiveCacheEntry : public StReferenced
+{
+public:
+    Bool match;
+    Grammar *grammar;
 
-	Bool jump_performed;
+    PositiveCacheEntry *parent_entry;
 
-	// We should be able to detect left-recursive grammars for "a: b_opt a c"
-	// cases when b_opt doesn't match, hence this hint.
-	Grammar *lr_parent;
-
-	ParserElement *parser_element;
-
-	Bool got_nonoptional_match;
-
-	ParsingStep_Compound ()
-	    : ParsingStep (ParsingStep::t_Compound),
-	      jump_grammar (NULL),
-	      jump_cb (NULL),
-	      jump_switch_grammar_entry (NULL),
-	      jump_compound_grammar_entry (NULL),
-	      lr_parent (NULL),
-	      parser_element (NULL)
-	{
-	}
-    };
-
-    class ParsingStep_Switch : public ParsingStep
-    {
-    public:
-	enum State {
-	    // Parsing non-left-recursive grammars
-	    State_NLR,
-	    // Parsing left-recursive grammars
-	    State_LR
-	};
-
-	State state;
-
-	Bool got_empty_nlr_match;
-	Bool got_nonempty_nlr_match;
-	Bool got_lr_match;
-
-	List< Ref<SwitchGrammarEntry> >::Element *cur_nlr_el;
-	List< Ref<SwitchGrammarEntry> >::Element *cur_lr_el;
-
-	ParserElement *nlr_parser_element;
-	ParserElement *parser_element;
-
-	ParsingStep_Switch ()
-	    : ParsingStep (ParsingStep::t_Switch),
-	      nlr_parser_element (NULL),
-	      parser_element (NULL)
-	{
-	}
-    };
-
-    class ParsingStep_Alias : public ParsingStep
-    {
-    public:
-	ParserElement *parser_element;
-
-	ParsingStep_Alias ()
-	    : ParsingStep (ParsingStep::t_Alias),
-	      parser_element (NULL)
-	{
-	}
-    };
-
-    // Positive cache is an n-ary tree with chains of matching phrases.
-    // Nodes of the tree refer to grammars.
-    //
-    // Consider the following grammar:
-    //
-    //     a: b c
-    //     b: [b]
-    //     c: d e
-    //     d: [d]
-    //     e: [e]
-    //     f: [f]
-    //
-    // And input: "b d e f".
-    //
-    // Here's the state of the cache after parsing this input:
-    //
-    //        +--->a------------------------->f
-    //        |                              /^
-    //        |      +----->c---------------/ |
-    //        |      |                        |
-    // (root)-+--->b-+----->d------->e--------+
-    //
-    // Tokens:     o--------o--------o--------o
-    //             b        d        e        f
-    //
-    // Positive cache is cleaned at cache cleanup points. Such points are
-    // specified explicitly in the grammar. They are usually points of
-    // no return, after wich match failures mean syntax errors in input.
-    //
-    class PositiveCacheEntry : public SimplyReferenced
-    {
-    public:
-	Bool match;
-	Grammar *grammar;
-
-	PositiveCacheEntry *parent_entry;
-
-	typedef Map< Ref<PositiveCacheEntry>,
-		     MemberExtractor< PositiveCacheEntry const,
-				      Grammar* const,
-				      &PositiveCacheEntry::grammar,
-				      UidType,
-				      AccessorExtractor< UidProvider const,
-							 UidType,
-							 &Grammar::getUid > >,
-		     DirectComparator<UidType> >
-		PositiveMap;
-
-	PositiveMap positive_map;
-
-	PositiveCacheEntry ()
-	    : grammar (NULL),
-	      parent_entry (NULL)
-	{
-	}
-    };
-
-    // TODO Having a similar superclass for positive cache would be nice.
-    class NegativeCache
-    {
-    private:
-	class GrammarEntry : public IntrusiveAvlTree_Node<>
-	{
-	public:
-	    Grammar *grammar;
-//	    VSlab<GrammarEntry>::AllocKey slab_key;
-
+    typedef Map< StRef<PositiveCacheEntry>,
+                 MemberExtractor< PositiveCacheEntry const,
+                                  Grammar* const,
+                                  &PositiveCacheEntry::grammar,
+                                  UintPtr,
+                                  CastExtractor< Grammar*,
+                                                 UintPtr > >,
+                 DirectComparator<UintPtr> >
 #if 0
-	    bool operator < (GrammarEntry const &grammar_entry) const
-	    {
-		return (Size) grammar < (Size) grammar_entry.grammar;
-	    }
-
-	    bool operator < (Grammar * const &ext_grammar) const
-	    {
-		return (Size) grammar < (Size) ext_grammar;
-	    }
+                                  UidType,
+                                  AccessorExtractor< UidProvider const,
+                                                     UidType,
+                                                     &Grammar::getUid > >,
+                 DirectComparator<UidType> >
 #endif
-	};
+            PositiveMap;
 
-	class NegEntry : //public SimplyReferenced
-			 public IntrusiveListElement<>
-	{
-	public:
-	    // TODO Unused?
-	    typedef Map< Grammar*,
-			 AccessorExtractorEx< Grammar,
-					      UidProvider const,
-					      UidType,
-					      &Grammar::getUid >,
-			 DirectComparator<UidType> >
-		    NegativeMap;
+    PositiveMap positive_map;
 
-	    // TODO intrusive map
-//	    NegativeMap negative_map;
-//	    boost::unordered_set<Grammar*> neg_set;
+    PositiveCacheEntry ()
+        : grammar (NULL),
+          parent_entry (NULL)
+    {
+    }
+};
 
-	    typedef IntrusiveAvlTree< GrammarEntry,
-				      MemberExtractor< GrammarEntry,
-						       Grammar*,
-						       &GrammarEntry::grammar,
-						       UintPtr,
-						       CastExtractor< Grammar*,
-								      UintPtr > >,
-				      DirectComparator<UintPtr> >
-		    GrammarEntryTree;
-
-	    GrammarEntryTree grammar_entries;
-	};
-
-	// Note: There's no crucial reason to do this.
-	typedef IntrusiveList<NegEntry> NegEntryList;
-
-	VStack neg_vstack;
-	VSlab<GrammarEntry> grammar_slab;
-
-	NegEntryList neg_cache;
-	NegEntry *cur_neg_entry;
-//	NegEntryList::iterator cur_iter;
-
-//	List< Ref<NegEntry> > neg_cache;
-//	List< Ref<NegEntry> >::Element *cur_neg_el;
-
-	// For debugging
-	size_t pos_index;
-
+// TODO Having a similar superclass for positive cache would be nice.
+class NegativeCache
+{
+private:
+    class GrammarEntry : public IntrusiveAvlTree_Node<>
+    {
     public:
-	void goRight ()
-	{
-	  FUNC_NAME (
-	    static char const * const _func_name = "Pargen.NegativeCache.goRight";
-	  )
+        Grammar *grammar;
+    };
 
-	    if (cur_neg_entry == NULL ||
-		cur_neg_entry == neg_cache.getLast())
-	    {
-		NegEntry * const neg_entry =
-			new (neg_vstack.push_malign (sizeof (NegEntry))) NegEntry;
-		neg_cache.append (neg_entry);
-		cur_neg_entry = neg_cache.getLast();
-	    } else {
-//		++ cur_iter;
-		cur_neg_entry = neg_cache.getNext (cur_neg_entry);
-	    }
+    class NegEntry : //public SimplyReferenced
+                     public IntrusiveListElement<>
+    {
+    public:
+        typedef IntrusiveAvlTree< GrammarEntry,
+                                  MemberExtractor< GrammarEntry,
+                                                   Grammar*,
+                                                   &GrammarEntry::grammar,
+                                                   UintPtr,
+                                                   CastExtractor< Grammar*,
+                                                                  UintPtr > >,
+                                  DirectComparator<UintPtr> >
+                GrammarEntryTree;
 
-	    ++ pos_index;
-	    DEBUG_NEGC2 (
-		errf->print (_func_name).print (": pos_index ").print (pos_index).pendl ();
-	    )
-	}
+        GrammarEntryTree grammar_entries;
+    };
 
-	void goLeft ()
-	{
-	  FUNC_NAME (
-	    static char const * const _func_name = "Pargen.NegativeCache.goLeft";
-	  )
+    // Note: There's no crucial reason to do this.
+    typedef IntrusiveList<NegEntry> NegEntryList;
 
-	    if (cur_neg_entry == NULL ||
-		cur_neg_entry == neg_cache.getFirst())
-	    {
-		NegEntry * const neg_entry =
-			new (neg_vstack.push_malign (sizeof (NegEntry))) NegEntry;
-//		cur_iter = neg_cache.insert (cur_iter, *neg_entry);
-		neg_cache.append (neg_entry, cur_neg_entry /* to_el */);
-		cur_neg_entry = neg_entry;
-	    } else {
-//		-- cur_iter;
-		cur_neg_entry = neg_cache.getPrevious (cur_neg_entry);
-	    }
+    VStack neg_vstack;
+    VSlab<GrammarEntry> grammar_slab;
 
-	    -- pos_index;
-	    DEBUG_NEGC2 (
-		errf->print (_func_name).print (": pos_index ").print (pos_index).pendl ();
-	    )
-	}
+    NegEntryList neg_cache;
+    NegEntry *cur_neg_entry;
 
-	void addNegative (Grammar * const grammar)
-	{
-	  FUNC_NAME (
-	    static char const * const _func_name = "Pargen.NegativeCache.addNegative";
-	  )
+    // For debugging
+    size_t pos_index;
 
-	    abortIf (cur_neg_entry == NULL);
+public:
+    void goRight ()
+    {
+      FUNC_NAME (
+        static char const * const _func_name = "Pargen.NegativeCache.goRight";
+      )
 
-	    DEBUG_NEGC2 (
-		errf->print (_func_name).print (": pos_index ").print (pos_index).pendl ();
-	    )
+        if (cur_neg_entry == NULL ||
+            cur_neg_entry == neg_cache.getLast())
+        {
+            NegEntry * const neg_entry =
+                    new (neg_vstack.push_malign (sizeof (NegEntry), alignof (NegEntry))) NegEntry;
+            neg_cache.append (neg_entry);
+            cur_neg_entry = neg_cache.getLast();
+        } else {
+            cur_neg_entry = neg_cache.getNext (cur_neg_entry);
+        }
 
-#if 0
-// Deprecated
-	    if (!(*cur_iter).negative_map.lookupValue (grammar).isNull ())
-		return;
+        ++ pos_index;
+        DEBUG_NEGC2 (
+            errs->println (_func, "pos_index ", pos_index);
+        )
+    }
 
-	    (*cur_iter).negative_map.add (grammar);
-#endif
+    void goLeft ()
+    {
+        if (cur_neg_entry == NULL ||
+            cur_neg_entry == neg_cache.getFirst())
+        {
+            NegEntry * const neg_entry =
+                    new (neg_vstack.push_malign (sizeof (NegEntry), alignof (NegEntry))) NegEntry;
+            neg_cache.append (neg_entry, cur_neg_entry /* to_el */);
+            cur_neg_entry = neg_entry;
+        } else {
+            cur_neg_entry = neg_cache.getPrevious (cur_neg_entry);
+        }
 
-//	    (*cur_iter).neg_set.insert (grammar);
+        -- pos_index;
+        DEBUG_NEGC2 (
+            errs->println (_func, "pos_index ", pos_index);
+        )
+    }
 
-	    VSlab<GrammarEntry>::AllocKey slab_key;
-	    GrammarEntry * const grammar_entry = grammar_slab.alloc (&slab_key);
-	    grammar_entry->grammar = grammar;
-	    if (!cur_neg_entry->grammar_entries.addUnique (grammar_entry)) {
-	      // New element inserted.
+    void addNegative (Grammar * const mt_nonnull grammar)
+    {
+        assert (cur_neg_entry);
+
+        DEBUG_NEGC2 (
+            errs->println (_func, "pos_index ", pos_index);
+        )
+
+        VSlab<GrammarEntry>::AllocKey slab_key;
+        GrammarEntry * const grammar_entry = grammar_slab.alloc (&slab_key);
+        grammar_entry->grammar = grammar;
+        if (!cur_neg_entry->grammar_entries.addUnique (grammar_entry)) {
+          // New element inserted.
 
 //		grammar_entry->slab_key = slab_key;
-	    } else {
-	      // Element with the same value already exists.
+        } else {
+          // Element with the same value already exists.
 
-		DEBUG_NEGC (
-		    errf->print (_func_name).print (": duplicate entry").pendl ();
-		)
+            DEBUG_NEGC (
+                errs->println (_func, "duplicate entry");
+            )
 
-		grammar_slab.free (slab_key);
-	    }
-	}
+            grammar_slab.free (slab_key);
+        }
+    }
 
-#if 0
-	class TmpComp
-	{
-	public:
-	    bool operator () (GrammarEntry const &grammar_entry, Grammar * const grammar) const
-	    {
-		return (Size) grammar_entry.grammar < (Size) grammar;
-	    }
+    bool isNegative (Grammar * const grammar)
+    {
+        assert (cur_neg_entry);
 
-	    bool operator () (Grammar * const grammar, GrammarEntry const &grammar_entry) const
-	    {
-		return (Size) grammar < (Size) grammar_entry.grammar;
-	    }
-	};
-#endif
+        DEBUG_NEGC2 (
+            errs->println (_func, "pos_index ", pos_index);
+        )
 
-	bool isNegative (Grammar * const grammar)
-	{
-	  FUNC_NAME (
-	    static char const * const _func_name = "Pargen.NegativeCache.isNegative";
-	  )
+        return cur_neg_entry->grammar_entries.lookup ((UintPtr) grammar);
+    }
 
-	    abortIf (cur_neg_entry == NULL);
+    void cut ()
+    {
+        NegEntry *neg_entry = neg_cache.getFirst();
+        while (neg_entry) {
+            NegEntry * const next_neg_entry = neg_cache.getNext (neg_entry);
 
-	    DEBUG_NEGC2 (
-		errf->print (_func_name).print (": pos_index ").print (pos_index).pendl ();
-	    )
+            if (neg_entry == cur_neg_entry)
+                break;
 
-//	    return !(*cur_iter).negative_map.lookupValue (grammar).isNull ();
-//	    return (*cur_iter).neg_set.find (grammar) != (*cur_iter).neg_set.end ();
+            neg_cache.remove (neg_entry);
 
-	    return cur_neg_entry->grammar_entries.lookup ((UintPtr) grammar /* , TmpComp () */);
-	}
+            // TODO FIXME Forgot to cut neg_vstack?
 
-	void cut ()
-	{
-//	    NegEntryList::iterator iter = neg_cache.begin ();
-	    NegEntry *neg_entry = neg_cache.getFirst();
-//	    while (iter != neg_cache.end ()) {
-	    while (neg_entry) {
-		NegEntry * const next_neg_entry = neg_cache.getNext (neg_entry);
+            // TODO vstack->vqueue, cut queue tail
 
-//		if (iter == cur_iter)
-		if (neg_entry == cur_neg_entry)
-		    break;
+            neg_entry = next_neg_entry;
+        }
+    }
 
-//		iter = neg_cache.erase (iter);
-		neg_cache.remove (neg_entry);
+    NegativeCache ()
+        : neg_vstack (1 << 16),
+          cur_neg_entry (NULL),
+          pos_index (0)
+    {
+    }
+};
 
-		// TODO FIXME Forgot to cut neg_vstack?
-
-		// TODO vstack->vqueue, cut queue tail
-
-		neg_entry = next_neg_entry;
-	    }
-	}
-
-	NegativeCache ()
-	    : neg_vstack (1 << 16),
-	      cur_neg_entry (NULL),
-	      pos_index (0)
-	{
-	}
+// State of the parser.
+class ParsingState : public ParserControl
+{
+public:
+    enum Direction {
+        Up,
+        Down
     };
 
-    // State of the parser.
-    class ParsingState : public ParserControl,
-			 public virtual SimplyReferenced
+    class PositionMarker : public ParserPositionMarker
     {
     public:
-	enum Direction {
-	    Up,
-	    Down
-	};
+        TokenStream::PositionMarker token_stream_pos;
+        ParsingStep_Compound *compound_step;
+        List< StRef<CompoundGrammarEntry> >::Element *cur_subg_el;
+        Bool got_nonoptional_match;
+        Size go_right_count;
 
-	class PositionMarker : public ParserPositionMarker,
-			       public virtual SimplyReferenced
-	{
-	public:
-	    TokenStream::PositionMarker token_stream_pos;
-// VSTACK	    Ref<ParsingStep_Compound> compound_step;
-	    ParsingStep_Compound *compound_step;
-	    List< Ref<CompoundGrammarEntry> >::Element *cur_subg_el;
-	    Bool got_nonoptional_match;
-	    Size go_right_count;
-
-	    PositionMarker ()
-		: compound_step (NULL)
-	    {
-	    }
-	};
-
-	Ref<ParserConfig> parser_config;
-
-	ConstMemoryDesc default_variant;
-
-	VSlab< ListAcceptor<ParserElement> > list_acceptor_slab;
-	VSlab< PtrAcceptor<ParserElement> > ptr_acceptor_slab;
-
-	Bool create_elements;
-
-	Ref<String> variant;
-
-	// Nest level is used for debugging output.
-	Size nest_level;
-
-	Ref<TokenStream> token_stream;
-	Ref<LookupData> lookup_data;
-	// User data for accept_func() and match_func().
-	void *user_data;
-
-	// FIXME Temporarily persistent
-	VStack *el_vstack;
-
-	// Stack of grammar invocations.
-// Deprecated	List< Ref<ParsingStep> > steps;
-	ParsingStepList step_list;
-	VStack step_vstack;
-
-	// Direction of the previous movement along the stack:
-	// "Up" means we've become one level deeper ('steps' grew),
-	// "Down" means we've returned from a nested level ('steps' shrunk).
-	// Note: it looks like I've swapped the meanings for "up" and "down" here.
-	Direction cur_direction;
-
-	// 'true' if we've come from a nested grammar with a match for that grammar,
-	// 'false' otherwise.
-	Bool match;
-	// 'true' if we've come from a nested grammar with an empty match
-	// for that grammar.
-	Bool empty_match;
-
-	// 'true' if we're up from a grammar which turns out
-	// to be left recursive after attempting to parse it.
-	// ("a: b_opt a c", and "b" is no match).
-	Bool compound_lr;
-
-	// 'true' if we're up from a compound grammar which is an empty match.
-	// This is possible if all subgrammars are optional or if we preset
-	// the first element of a left-recursive grammar and all of the following
-	// elements are optional.
-	Bool compound_empty;
-
-	Bool debug_dump;
-
-	PositiveCacheEntry  positive_cache_root;
-	PositiveCacheEntry *cur_positive_cache_entry;
-
-	NegativeCache negative_cache;
-
-	Bool position_changed;
-
-	ParsingStep& getLastStep ()
-	{
-	    abortIf (step_list.isEmpty());
-	    return *step_list.getLast();
-	}
-
-	void setCreateElements (bool create_elements)
-	{
-	    this->create_elements = create_elements;
-	}
-
-	Ref<ParserPositionMarker> getPosition ();
-
-	void setPosition (ParserPositionMarker *pmark);
-
-	void setVariant (ConstMemoryDesc const &variant)
-	{
-	    this->variant = grab (new String (variant));
-	}
-
-	ParsingState ()
-	    : el_vstack (new VStack (1 << 16 /* block_size */)),
-	      step_vstack (1 << 16 /* block_size */)
-	{
-	  FUNC_NAME (
-	    static char const * const _func_name = "Pargen.ParsingState.()";
-	  )
-
-	    DEBUG_VSTACK (
-		errf->print (_func_name).print (": "
-			     "list_acceptor_slab vstack: 0x").printHex ((Size) &list_acceptor_slab.vstack).print (", "
-			     "ptr_acceptor_slab vstack: 0x").printHex ((Size) &ptr_acceptor_slab.vstack).pendl ();
-		errf->print (_func_name).print (": "
-			     "el_vstack: 0x").printHex ((Size) el_vstack).print (", "
-			     "step_vstack: 0x").printHex ((Size) &step_vstack).pendl ();
-		errf->print (_func_name).print (": CompoundGrammarEntry::acceptor_slab vstack: "
-			     "0x").printHex ((Size) &CompoundGrammarEntry::acceptor_slab.vstack).pendl ();
-	    )
-	}
+        PositionMarker ()
+            : compound_step (NULL)
+        {
+        }
     };
 
-    Ref<ParserPositionMarker>
-    ParsingState::getPosition ()
+    StRef<ParserConfig> parser_config;
+
+    ConstMemory default_variant;
+
+    VSlab< ListAcceptor<ParserElement> > list_acceptor_slab;
+    VSlab< PtrAcceptor<ParserElement> > ptr_acceptor_slab;
+
+    Bool create_elements;
+
+    StRef<String> variant;
+
+    // Nest level is used for debugging output.
+    Size nest_level;
+
+    TokenStream *token_stream;
+    LookupData  *lookup_data;
+    // User data for accept_func() and match_func().
+    void *user_data;
+
+    // FIXME Temporarily persistent
+    VStack *el_vstack;
+
+    // Stack of grammar invocations.
+    ParsingStepList step_list;
+    VStack step_vstack;
+
+    // Direction of the previous movement along the stack:
+    // "Up" means we've become one level deeper ('steps' grew),
+    // "Down" means we've returned from a nested level ('steps' shrunk).
+    // Note: it looks like I've swapped the meanings for "up" and "down" here.
+    Direction cur_direction;
+
+    // 'true' if we've come from a nested grammar with a match for that grammar,
+    // 'false' otherwise.
+    Bool match;
+    // 'true' if we've come from a nested grammar with an empty match
+    // for that grammar.
+    Bool empty_match;
+
+    // 'true' if we're up from a grammar which turns out
+    // to be left recursive after attempting to parse it.
+    // ("a: b_opt a c", and "b" is no match).
+    Bool compound_lr;
+
+    // 'true' if we're up from a compound grammar which is an empty match.
+    // This is possible if all subgrammars are optional or if we preset
+    // the first element of a left-recursive grammar and all of the following
+    // elements are optional.
+    Bool compound_empty;
+
+    Bool debug_dump;
+
+    PositiveCacheEntry  positive_cache_root;
+    PositiveCacheEntry *cur_positive_cache_entry;
+
+    NegativeCache negative_cache;
+
+    Bool position_changed;
+
+    ParsingStep& getLastStep ()
     {
-	ParsingStep &parsing_step = getLastStep ();
-	abortIf (parsing_step.parsing_step_type != ParsingStep::t_Compound);
-	ParsingStep_Compound *compound_step = static_cast <ParsingStep_Compound*> (&parsing_step);
+        assert (!step_list.isEmpty());
+        return *step_list.getLast();
+    }
 
-	Ref<PositionMarker> pmark = grab (new PositionMarker);
-	token_stream->getPosition (&pmark->token_stream_pos);
-	pmark->compound_step = compound_step;
-	pmark->got_nonoptional_match = compound_step->got_nonoptional_match;
-	pmark->go_right_count = parsing_step.go_right_count;
+  mt_iface (ParserControl)
 
-	{
+    void setCreateElements (bool const create_elements)
+    {
+        this->create_elements = create_elements;
+    }
+
+    StRef<ParserPositionMarker> getPosition ();
+
+    mt_throws Result setPosition (ParserPositionMarker *pmark);
+
+    void setVariant (ConstMemory const variant)
+    {
+        this->variant = st_grab (new (std::nothrow) String (variant));
+    }
+
+  mt_iface_end
+
+    ParsingState ()
+        : el_vstack (new (std::nothrow) VStack (1 << 16 /* block_size */)),
+          step_vstack (1 << 16 /* block_size */)
+    {
+        assert (el_vstack);
+
+        DEBUG_VSTACK (
+            errs->println (_func,
+                           "list_acceptor_slab vstack: 0x", fmt_hex, (UintPtr) &list_acceptor_slab.vstack, ", "
+                           "ptr_acceptor_slab vstack: 0x", fmt_hex, (UintPtr) &ptr_acceptor_slab.vstack);
+            errs->println (_func,
+                           "el_vstack: 0x", fmt_hex, (UintPtr) el_vstack, ", "
+                           "step_vstack: 0x", fmt_hex, (UintPtr) &step_vstack);
+            errs->println (_func, "CompoundGrammarEntry::acceptor_slab vstack: "
+                           "0x", fmt_hex, (UintPtr) &CompoundGrammarEntry::acceptor_slab.vstack);
+        )
+    }
+};
+
+StRef<ParserPositionMarker>
+ParsingState::getPosition ()
+{
+    ParsingStep &parsing_step = getLastStep ();
+    assert (parsing_step.parsing_step_type == ParsingStep::t_Compound);
+    ParsingStep_Compound * const compound_step = static_cast <ParsingStep_Compound*> (&parsing_step);
+
+    StRef<PositionMarker> const pmark = st_grab (new (std::nothrow) PositionMarker);
+    token_stream->getPosition (&pmark->token_stream_pos);
+    pmark->compound_step = compound_step;
+    pmark->got_nonoptional_match = compound_step->got_nonoptional_match;
+    pmark->go_right_count = parsing_step.go_right_count;
+
+    {
 #if 0
 // TODO Зачем это было написано (нееверный блок)?
-	    List< Ref<CompoundGrammarEntry> >::Element *next_subg_el = compound_step->cur_subg_el;
-	    while (next_subg_el != NULL &&
-		   // FIXME Спорно. Скорее всего, нужно пропускать
-		   //       только первую match-функцию - ту, которая вызвана
-		   //       в данный момент.
-		   next_subg_el->data->inline_match_func != NULL)
-	    {
-		next_subg_el = next_subg_el->next;
-	    }
+        List< StRef<CompoundGrammarEntry> >::Element *next_subg_el = compound_step->cur_subg_el;
+        while (next_subg_el != NULL &&
+               // FIXME Спорно. Скорее всего, нужно пропускать
+               //       только первую match-функцию - ту, которая вызвана
+               //       в данный момент.
+               next_subg_el->data->inline_match_func != NULL)
+        {
+            next_subg_el = next_subg_el->next;
+        }
 
-	    pmark->cur_subg_el = next_subg_el;
+        pmark->cur_subg_el = next_subg_el;
 #endif
 
-	    pmark->cur_subg_el = compound_step->cur_subg_el;
-	}
-
-	return pmark.ptr ();
+        pmark->cur_subg_el = compound_step->cur_subg_el;
     }
 
-    void
-    ParsingState::setPosition (ParserPositionMarker *_pmark)
-    {
-	FUNC_NAME (
-	    static char const * const _func_name = "Pargen.ParsingState.setPosition";
-	)
-
-	PositionMarker *pmark = static_cast <PositionMarker*> (_pmark);
-
-	position_changed = true;
-
-	Size total_go_right = 0;
-	{
-// VSTACK	    ParsingStep * const mark_step = static_cast <ParsingStep*> (pmark->compound_step.ptr ());
-	    ParsingStep * const mark_step = static_cast <ParsingStep*> (pmark->compound_step);
-	    for (;;) {
-		ParsingStep * const cur_step = step_list.getLast();
-		if (cur_step == mark_step)
-		    break;
-
-#if 0
-		for (Size i = 0; i < cur_step->go_right_count; i++) {
-		    DEBUG_NEGC (
-			errf->print (_func_name).print (": go left").pendl ();
-		    )
-		    negative_cache.goLeft ();
-		}
-#endif
-		total_go_right += cur_step->go_right_count;
-
-		pop_step (this, false /* match */, false /* empty_match */, false /* negative_cache_update */);
-	    }
-	}
-
-	ParsingStep_Compound *compound_step = static_cast <ParsingStep_Compound*> (&getLastStep ());
-
-	compound_step->cur_subg_el = pmark->cur_subg_el;
-	compound_step->got_nonoptional_match = pmark->got_nonoptional_match;
-
-	cur_direction = ParsingState::Up;
-
-	total_go_right += compound_step->go_right_count;
-	abortIf (total_go_right < pmark->go_right_count);
-//	abortIf (compound_step->go_right_count < pmark->go_right_count);
-//	for (Size i = 0; i < compound_step->go_right_count - pmark->go_right_count; i++) {
-	for (Size i = 0; i < total_go_right - pmark->go_right_count; i++) {
-	    DEBUG_NEGC (
-		errf->print (_func_name).print (": go left").pendl ();
-	    )
-	    negative_cache.goLeft ();
-	}
-
-	token_stream->setPosition (&pmark->token_stream_pos);
-    }
-
+    return pmark;
 }
 
+mt_throws Result
+ParsingState::setPosition (ParserPositionMarker * const _pmark)
+{
+    PositionMarker * const pmark = static_cast <PositionMarker*> (_pmark);
+
+    position_changed = true;
+
+    Size total_go_right = 0;
+    {
+        ParsingStep * const mark_step = static_cast <ParsingStep*> (pmark->compound_step);
+        for (;;) {
+            ParsingStep * const cur_step = step_list.getLast();
+            if (cur_step == mark_step)
+                break;
+
+            total_go_right += cur_step->go_right_count;
+
+            if (!pop_step (this, false /* match */, false /* empty_match */, false /* negative_cache_update */))
+                return Result::Failure;
+        }
+    }
+
+    ParsingStep_Compound * const compound_step =
+            static_cast <ParsingStep_Compound*> (&getLastStep ());
+
+    compound_step->cur_subg_el = pmark->cur_subg_el;
+    compound_step->got_nonoptional_match = pmark->got_nonoptional_match;
+
+    cur_direction = ParsingState::Up;
+
+    total_go_right += compound_step->go_right_count;
+    assert (total_go_right >= pmark->go_right_count);
+    for (Size i = 0; i < total_go_right - pmark->go_right_count; i++) {
+        DEBUG_NEGC (
+            errs->println (_func, "go left");
+        )
+        negative_cache.goLeft ();
+    }
+
+    return token_stream->setPosition (&pmark->token_stream_pos);
+}
+} // namespace {}
+
 static void
-print_whsp (File *file,
-	    Size num_spaces)
+print_whsp (OutputStream * const mt_nonnull outs,
+	    Size           const num_spaces)
 {
     for (Size i = 0; i < num_spaces; i++)
-	file->print (" ");
+	outs->print (" ");
 }
 
 static void
-print_tab (File *file,
-	   Size nest_level)
+print_tab (OutputStream * const mt_nonnull outs,
+	   Size           const nest_level)
 {
-    print_whsp (file, nest_level * 1);
+    print_whsp (outs, nest_level * 1);
 }
 
 static void
-push_step (ParsingState * const parsing_state,
-	   ParsingStep  * const step,
+push_step (ParsingState * const mt_nonnull parsing_state,
+	   ParsingStep  * const mt_nonnull step,
 	   Bool           const new_checkpoint = true)
 {
     DEBUG_INT (
-      errf->print ("Pargen.push_step").pendl ();
-    );
+      errs->println ("Pargen.push_step");
+    )
 
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
     parsing_state->token_stream->getPosition (&step->token_stream_pos);
 
     parsing_state->nest_level ++;
 
     {
+        #warning What's' this?
 	// TEST FIXME TEMPORAL
 	step->ref ();
 
 	parsing_state->step_list.append (step);
 	step->ref ();
+
+#if 0
+        errs->println ("--- step_list appended: "
+                       "f 0x", fmt_hex, (UintPtr) parsing_state->step_list.getFirst(),
+                       ", l 0x", (UintPtr) parsing_state->step_list.getLast(),
+                       ", fe 0x", fmt_hex, (UintPtr) parsing_state->step_list.first,
+                       ", le 0x", (UintPtr) parsing_state->step_list.last);
+#endif
     }
 
     parsing_state->cur_direction = ParsingState::Up;
 
     if (new_checkpoint) {
-	if (!parsing_state->lookup_data.isNull ())
+	if (parsing_state->lookup_data)
 	    parsing_state->lookup_data->newCheckpoint ();
     }
 
     DEBUG_PAR (
 	if (parsing_state->debug_dump) {
-	    errf->print (">");
-	    print_tab (errf, parsing_state->nest_level);
+	    errs->print (">");
+	    print_tab (errs, parsing_state->nest_level);
 
 	    ParsingStep &_step = parsing_state->getLastStep ();
 	    switch (_step.parsing_step_type) {
 		case ParsingStep::t_Sequence: {
 		    ParsingStep_Sequence &step = static_cast <ParsingStep_Sequence&> (_step);
-		    errf->print ("(seq) ").print (step.grammar->toString ());
+		    errs->print ("(seq) ", step.grammar->toString ());
 		} break;
 		case ParsingStep::t_Compound: {
 		    ParsingStep_Compound &step = static_cast <ParsingStep_Compound&> (_step);
-		    errf->print ("(com) ").print (step.grammar->toString ());
+		    errs->print ("(com) ", step.grammar->toString ());
 		} break;
 		case ParsingStep::t_Switch: {
 		    ParsingStep_Switch &step = static_cast <ParsingStep_Switch&> (_step);
-		    errf->print ("(swi) ").print (step.grammar->toString ());
+		    errs->print ("(swi) ", step.grammar->toString ());
 		} break;
 		case ParsingStep::t_Alias: {
-		    errf->print ("(alias)");
+		    errs->print ("(alias)");
 		}
 	    }
 
-	    errf->print (" >").pendl ();
+	    errs->println (" >");
 	}
     )
 }
 
-static void
+static mt_throws Result
 pop_step (ParsingState *parsing_state,
 	  bool match,
 	  bool empty_match,
 	  bool negative_cache_update)
 {
-  FUNC_NAME (
-    static char const * const _func_name = "Pargen.Parser.pop_step";
-  )
-
-    abortIf (empty_match && !match);
+    assert (!(empty_match && !match));
 
     DEBUG_INT (
-	errf->print (_func_name).print (": match: ").print (match ? "true" : "false").print (
-		     ", empty_match: ").print (empty_match ? "true" : "false").pendl ();
+	errs->println (_func, "match: ", match, ", "
+                       "empty_match: ", empty_match);
     );
 
     DEBUG_PAR (
 	if (parsing_state->debug_dump) {
 	    if (match)
-		errf->print ("+");
+		errs->print ("+");
 	    else
-		errf->print (" ");
+		errs->print (" ");
 
-	    print_tab (errf, parsing_state->nest_level);
+	    print_tab (errs, parsing_state->nest_level);
 
 	    if (match)
-		errf->print ("MATCH ");
+		errs->print ("MATCH ");
 
 	    ParsingStep &_step = parsing_state->getLastStep ();
 	    switch (_step.parsing_step_type) {
 		case ParsingStep::t_Sequence: {
 		    ParsingStep_Sequence &step = static_cast <ParsingStep_Sequence&> (_step);
-		    errf->print ("(seq) ").print (step.grammar->toString ());
+		    errs->print ("(seq) ", step.grammar->toString ());
 		} break;
 		case ParsingStep::t_Compound: {
 		    ParsingStep_Compound &step = static_cast <ParsingStep_Compound&> (_step);
-		    errf->print ("(com) ").print (step.grammar->toString ());
+		    errs->print ("(com) ", step.grammar->toString ());
 		} break;
 		case ParsingStep::t_Switch: {
 		    ParsingStep_Switch &step = static_cast <ParsingStep_Switch&> (_step);
-		    errf->print ("(swi) ").print (step.grammar->toString ());
+		    errs->print ("(swi) ", step.grammar->toString ());
 		} break;
 		case ParsingStep::t_Alias: {
-		    errf->print ("(alias)");
+		    errs->print ("(alias)");
 		} break;
 	    }
 
 	    if (match)
-		errf->print (" +");
+		errs->print (" +");
 	    else
-		errf->print (" <");
+		errs->print (" <");
 
-	    errf->pendl ();
+            errs->println ("");
 	}
     );
 
-    abortIf (parsing_state == NULL);
+    assert (parsing_state);
 
-    abortIf (parsing_state->step_list.isEmpty());
+    assert (!parsing_state->step_list.isEmpty());
     ParsingStep &step = *parsing_state->step_list.getLast();
 
-    if (!match || empty_match)
-	parsing_state->token_stream->setPosition (&step.token_stream_pos);
+    if (!match || empty_match) {
+	if (!parsing_state->token_stream->setPosition (&step.token_stream_pos))
+            return Result::Failure;
+    }
 
     if (negative_cache_update) {
 	if (!match || empty_match) {
 	    for (Size i = 0; i < step.go_right_count; i++) {
 		DEBUG_NEGC (
-		    errf->print (_func_name).print (": go left").pendl ();
+                  errs->println (_func, "go left");
 		)
 		parsing_state->negative_cache.goLeft ();
 	    }
 	} else {
 	    if (parsing_state->step_list.getFirst() != parsing_state->step_list.getLast()) {
-//		ParsingStep &prv_step = *(-- -- parsing_state->step_list.end ());
 		ParsingStep &prv_step = *(parsing_state->step_list.getPrevious (parsing_state->step_list.getLast()));
 		prv_step.go_right_count += step.go_right_count;
 	    }
@@ -896,7 +805,7 @@ pop_step (ParsingState *parsing_state,
 
 	if (!match /* TEST && !empty_match */) {
 	    DEBUG_NEGC (
-		errf->print (_func_name).print (": adding negative ").print (step.grammar->toString ()).pendl ();
+              errs->println (_func, "adding negative ", step.grammar->toString ());
 	    )
 	    parsing_state->negative_cache.addNegative (step.grammar);
 	}
@@ -907,119 +816,133 @@ pop_step (ParsingState *parsing_state,
 
     parsing_state->nest_level --;
     {
-// Deprecated	parsing_state->steps.remove (parsing_state->steps.last);
-
 	ParsingStep * const tmp_step = parsing_state->step_list.getLast();
 	VStack::Level const tmp_level = tmp_step->vstack_level;
 	VStack::Level const tmp_el_level = tmp_step->el_level;
 
-	parsing_state->step_list.remove (parsing_state->step_list.getLast());
+	parsing_state->step_list.remove (tmp_step);
 	tmp_step->~ParsingStep ();
 
-// VSTACK	tmp_step->unref ();
+#if 0
+        errs->println ("--- step_list removed: "
+                       "f 0x", fmt_hex, (UintPtr) parsing_state->step_list.getFirst(),
+                       ", l 0x", (UintPtr) parsing_state->step_list.getLast(),
+                       ", fe 0x", fmt_hex, (UintPtr) parsing_state->step_list.first,
+                       ", le 0x", (UintPtr) parsing_state->step_list.last);
+#endif
+
 	parsing_state->step_vstack.setLevel (tmp_level);
 
-	if (!match) {
-//	    errf->print ("--- setting el_level").pendl ();
+	if (!match)
 	    parsing_state->el_vstack->setLevel (tmp_el_level);
-	}
     }
 
     parsing_state->cur_direction = ParsingState::Down;
 
     if (match) {
-	if (!parsing_state->lookup_data.isNull ())
+	if (parsing_state->lookup_data)
 	    parsing_state->lookup_data->commitCheckpoint ();
     } else {
-	if (!parsing_state->lookup_data.isNull ())
+	if (parsing_state->lookup_data)
 	    parsing_state->lookup_data->cancelCheckpoint ();
     }
+
+    return Result::Success;
 }
 
-// Returns 'true' if we have a match, 'false otherwise.
-static bool
-parse_Immediate (ParsingState      * const parsing_state,
-		 Grammar_Immediate * const grammar,
-		 Acceptor          * const acceptor)
+// Returns 'true' (@ret_res) if we have a match, 'false otherwise.
+static mt_throws Result
+parse_Immediate (ParsingState      * const mt_nonnull parsing_state,
+		 Grammar_Immediate * const mt_nonnull grammar,
+		 Acceptor          * const acceptor,
+                 bool              * const mt_nonnull ret_res)
 {
-    static char const * const _func_name = "Pargen.Parser.parse_Immediate";
-
     DEBUG_FLO (
-      errf->print (_func_name).pendl ();
+      errs->println (_func_);
     );
 
-    abortIf (parsing_state == NULL);
+    assert (parsing_state);
 
     TokenStream::PositionMarker pmark;
     parsing_state->token_stream->getPosition (&pmark);
 
-    Ref<SimplyReferenced> user_obj;
+    StRef<StReferenced> user_obj;
     void *user_ptr;
-    ConstMemoryDesc token = parsing_state->token_stream->getNextToken (&user_obj, &user_ptr);
-    if (token.getLength () == 0) {
-	parsing_state->token_stream->setPosition (&pmark);
+    ConstMemory token;
+    if (!parsing_state->token_stream->getNextToken (&token, &user_obj, &user_ptr))
+        return Result::Failure;
+    if (token.len() == 0) {
+	if (!parsing_state->token_stream->setPosition (&pmark))
+            return Result::Failure;
+
 	DEBUG (
-	    errf->print (_func_name).print (": no token").pendl ();
+          errs->println (_func, "no token");
 	)
-	return false;
+        *ret_res = false;
+        return Result::Success;
     }
 
     DEBUG_PAR (
-	if (parsing_state->debug_dump)
-	    errf->print (_func_name).print (": token: ").print (token).pendl ();
+      if (parsing_state->debug_dump)
+          errs->println (_func, "token: ", token);
     )
 
     DEBUG_INT (
-	errf->print (_func_name).print (": token: ").print (token).pendl ();
-    );
+      errs->println (_func, "token: ", token);
+    )
 
     if (!grammar->match (token, user_ptr, parsing_state->user_data)) {
-	parsing_state->token_stream->setPosition (&pmark);
+	if (!parsing_state->token_stream->setPosition (&pmark))
+            return Result::Failure;
 
 	DEBUG_INT (
-	    errf->print (_func_name).print (": !grammar->match()").pendl ();
+          errs->println (_func, "!grammar->match()");
 	)
 
-	return false;
+        *ret_res = false;
+        return Result::Success;
     }
 
     // Note: This is a strange condition...
-    if (acceptor != NULL) {
-	Byte * const el_token_buf = parsing_state->el_vstack->push (token.getLength ());
-	memcpy (el_token_buf, token.getMemory (), token.getLength ());
+    if (acceptor) {
+	Byte * const el_token_buf = parsing_state->el_vstack->push_unaligned (token.len());
+	memcpy (el_token_buf, token.mem(), token.len());
 	ParserElement * const parser_element =
-		new (parsing_state->el_vstack->push_malign (sizeof (ParserElement_Token))) ParserElement_Token (
-			ConstMemoryDesc (el_token_buf, token.getLength ()),
-			user_ptr);
-//		grab (static_cast <ParserElement*> (new ParserElement_Token (ConstMemoryDesc (el_token_buf, token.getLength ()),
-//									     user_ptr)));
+		new (parsing_state->el_vstack->push_malign (
+                                    sizeof (ParserElement_Token), alignof (ParserElement_Token)))
+                            ParserElement_Token (
+                                    ConstMemory (el_token_buf, token.len()),
+                                    user_ptr);
 
 	// TODO I think that match_func() and accept_func() should be called
 	// regardless of whether 'acceptor' is NULL or not.
 	if (grammar->match_func != NULL) {
 	    DEBUG_CB (
-		errf->print (_func_name).print (": calling match_func()").pendl ();
+              errs->println (_func, "calling match_func()");
 	    )
 	    if (!grammar->match_func (parser_element, parsing_state, parsing_state->user_data)) {
-		parsing_state->token_stream->setPosition (&pmark);
+		if (!parsing_state->token_stream->setPosition (&pmark))
+                    return Result::Failure;
+
 		DEBUG_INT (
-		    errf->print (_func_name).print (": match_func() returned false").pendl ();
+                  errs->println (_func, "match_func() returned false");
 		)
-		return false;
+                *ret_res = false;
+                return Result::Success;
 	    }
 
 	    DEBUG_INT (
-		errf->print (_func_name).print (": match_func() returned true").pendl ();
+              errs->println (_func, "match_func() returned true");
 	    )
 	} else {
 	    DEBUG_INT (
-		errf->print (_func_name).print (": no match_func()").pendl ();
+              errs->println (_func, "no match_func()");
 	    )
 	}
 
 	if (grammar->accept_func != NULL) {
 	    DEBUG_CB (
-		errf->print (_func_name).print (": calling accept_func()").pendl ();
+              errs->println (_func, "calling accept_func()");
 	    )
 	    grammar->accept_func (parser_element,
 				  parsing_state,
@@ -1027,11 +950,10 @@ parse_Immediate (ParsingState      * const parsing_state,
 	}
 
 	acceptor->setParserElement (parser_element);
-
-//	errf->print (_func_name).print (": new token parser_element: 0x").printHex ((Uint64) parser_element).pendl ();
     }
 
-    return true;
+    *ret_res = true;
+    return Result::Success;
 }
 
 enum ParsingResult {
@@ -1053,15 +975,14 @@ push_compound_step (ParsingState     * const parsing_state,
 		    bool               const got_nonoptional_match = false,
 		    Size               const go_right_count = 0,
 		    bool               const got_cur_subg_el = false,
-		    List< Ref<CompoundGrammarEntry> >::Element * const cur_subg_el = NULL)
+		    List< StRef<CompoundGrammarEntry> >::Element * const cur_subg_el = NULL)
 {
-//    static char const * const _func_name = "Pargen.Parser.push_compound_step";
-
-// VSTACK    Ref<ParsingStep_Compound> step = grab (new ParsingStep_Compound);
     VStack::Level const tmp_vstack_level = parsing_state->step_vstack.getLevel ();
     VStack::Level const tmp_el_level = parsing_state->el_vstack->getLevel ();
     ParsingStep_Compound * const step =
-	    new (parsing_state->step_vstack.push_malign (sizeof (ParsingStep_Compound))) ParsingStep_Compound;
+	    new (parsing_state->step_vstack.push_malign (
+                                sizeof (ParsingStep_Compound), alignof (ParsingStep_Compound)))
+                        ParsingStep_Compound;
     step->vstack_level = tmp_vstack_level;
     step->el_level = tmp_el_level;
     step->acceptor = acceptor;
@@ -1077,8 +998,6 @@ push_compound_step (ParsingState     * const parsing_state,
 
     step->parser_element = grammar->createParserElement (parsing_state->el_vstack);
     push_step (parsing_state, step);
-
-//    errf->print (_func_name).print (": new parser_element: 0x").printHex ((Uint64) step->parser_element).pendl ();
 }
 
 static void
@@ -1090,13 +1009,14 @@ push_switch_step (ParsingState       * const parsing_state,
 		  VSlabRef<Acceptor>   const acceptor,
 #endif
 		  bool                 const optional,
-		  List< Ref<SwitchGrammarEntry> >::Element * const cur_subg_el = NULL)
+		  List< StRef<SwitchGrammarEntry> >::Element * const cur_subg_el = NULL)
 {
-// VSTACK    Ref<ParsingStep_Switch> step = grab (new ParsingStep_Switch);
     VStack::Level const tmp_vstack_level = parsing_state->step_vstack.getLevel ();
     VStack::Level const tmp_el_level = parsing_state->el_vstack->getLevel ();
     ParsingStep_Switch * const step =
-	    new (parsing_state->step_vstack.push_malign (sizeof (ParsingStep_Switch))) ParsingStep_Switch;
+	    new (parsing_state->step_vstack.push_malign (
+                                sizeof (ParsingStep_Switch), alignof (ParsingStep_Switch)))
+                        ParsingStep_Switch;
     step->vstack_level = tmp_vstack_level;
     step->el_level = tmp_el_level;
     step->acceptor = acceptor;
@@ -1117,23 +1037,19 @@ push_switch_step (ParsingState       * const parsing_state,
     push_step (parsing_state, step);
 }
 
-static ParsingResult
-parse_grammar (ParsingState *parsing_state,
-	       Grammar      *_grammar,
+static mt_throws Result
+parse_grammar (ParsingState       * const mt_nonnull parsing_state,
+	       Grammar            * const mt_nonnull _grammar,
 // VSLAB ACCEPTOR	       Acceptor     *acceptor,
-	       VSlabRef<Acceptor> acceptor,
-	       bool          optional)
+	       VSlabRef<Acceptor>   const acceptor,
+	       bool                 const optional,
+               ParsingResult      * const mt_nonnull ret_res)
 {
-  FUNC_NAME (
-    static char const * const _func_name = "Pargen.Parser.parse_grammar";
-  )
-
     DEBUG_FLO (
-      errf->print (_func_name).pendl ();
+      errs->println (_func_);
     );
 
-    abortIf (parsing_state == NULL);
-    abortIf (_grammar == NULL);
+    assert (parsing_state && _grammar);
 
 #ifdef PARGEN_NEGATIVE_CACHE
     if (parsing_state->negative_cache.isNegative (_grammar)) {
@@ -1143,11 +1059,8 @@ parse_grammar (ParsingState *parsing_state,
       // of the lookup that we've just made.
 
 	DEBUG_NEGC (
-	    errf->print (_func_name).print (": negative ").print (_grammar->toString ()).pendl ();
+          errs->println (_func, "negative ", _grammar->toString ());
 	)
-
-//	if (parsing_state->debug_dump)
-//	    errf->print ("!");
 
 	if (optional) {
 #if 0
@@ -1160,28 +1073,36 @@ parse_grammar (ParsingState *parsing_state,
 	    }
 #endif
 
-	    return ParseEmptyMatch;
+	    *ret_res = ParseEmptyMatch;
+            return Result::Success;
 	}
 
-	return ParseNoMatch;
+	*ret_res = ParseNoMatch;
+        return Result::Success;
     }
 #endif
 
     switch (_grammar->grammar_type) {
 	case Grammar::t_Immediate: {
 	    DEBUG_INT (
-	      errf->print (_func_name).print (": Grammar::_Immediate").pendl ();
-	    );
-	    Bool match = parse_Immediate (parsing_state,
-					  static_cast <Grammar_Immediate*> (_grammar),
-					  acceptor);
+	      errs->println (_func, "Grammar::_Immediate");
+	    )
+
+            bool match;
+	    if (!parse_Immediate (parsing_state,
+                                  static_cast <Grammar_Immediate*> (_grammar),
+                                  acceptor,
+                                  &match))
+            {
+                return Result::Failure;
+            }
 
 	    if (match) {
 		{
 		  // Updating negative cache state (moving right)
 
 		    DEBUG_NEGC (
-			errf->print (_func_name).print (": go right").pendl ();
+                      errs->println (_func, "go right");
 		    )
 		    parsing_state->negative_cache.goRight ();
 
@@ -1191,30 +1112,33 @@ parse_grammar (ParsingState *parsing_state,
 		    }
 		}
 
-		return ParseNonemptyMatch;
+		*ret_res = ParseNonemptyMatch;
+                return Result::Success;
 	    }
 
 	    if (optional) {
 	      // FIXME: This looks strange. Why don't we expect this to be called
-	      // in parse_Immediate()? This calls seems to be excessive.
+	      // in parse_Immediate()? This call seems to be excessive.
 
-		abortIf (match);
+		assert (!match);
 		if (_grammar->accept_func != NULL) {
 		    _grammar->accept_func (NULL,
 					   parsing_state,
 					   parsing_state->user_data);
 		}
 
-		return ParseEmptyMatch;
+		*ret_res = ParseEmptyMatch;
+                return Result::Success;
 	    }
 
-	    return ParseNoMatch;
+	    *ret_res = ParseNoMatch;
+            return Result::Success;
 	} break;
 
 	case Grammar::t_Compound: {
 	    DEBUG_INT (
-	      errf->print (_func_name).print (": Grammar::_Compound").pendl ();
-	    );
+	      errs->println (_func, "Grammar::_Compound");
+	    )
 
 	    Grammar_Compound * const grammar = static_cast <Grammar_Compound*> (_grammar);
 
@@ -1230,113 +1154,126 @@ parse_grammar (ParsingState *parsing_state,
 
 	case Grammar::t_Switch: {
 	    DEBUG_INT (
-	      errf->print (_func_name).print (": Grammar::_Switch").pendl ();
-	    );
+	      errs->println (_func, "Grammar::_Switch");
+	    )
 
-	    Grammar_Switch * const &grammar = static_cast <Grammar_Switch*> (_grammar);
+	    Grammar_Switch * const grammar = static_cast <Grammar_Switch*> (_grammar);
 
 	    push_switch_step (parsing_state, grammar, acceptor, optional, NULL /* cur_subg_el */);
 	} break;
 
 	case Grammar::t_Alias: {
 	    DEBUG_INT (
-		errf->print (_func_name).print (": Grammar::_Alias").pendl ();
+		errs->print (_func, "Grammar::_Alias");
 	    )
-	    Grammar_Alias * const &grammar = static_cast <Grammar_Alias*> (_grammar);
-// VSTACK	    Ref<ParsingStep_Alias> step = grab (new ParsingStep_Alias);
+
+	    Grammar_Alias * const grammar = static_cast <Grammar_Alias*> (_grammar);
+
 	    VStack::Level const tmp_vstack_level = parsing_state->step_vstack.getLevel ();
 	    VStack::Level const tmp_el_level = parsing_state->el_vstack->getLevel ();
+
 	    ParsingStep_Alias * const step =
-		    new (parsing_state->step_vstack.push_malign (sizeof (ParsingStep_Alias))) ParsingStep_Alias;
+		    new (parsing_state->step_vstack.push_malign (
+                                        sizeof (ParsingStep_Alias), alignof (ParsingStep_Alias)))
+                                ParsingStep_Alias;
 	    step->vstack_level = tmp_vstack_level;
 	    step->el_level = tmp_el_level;
 	    step->acceptor = acceptor;
 	    step->optional = optional;
 	    step->grammar = grammar;
+
 	    push_step (parsing_state, step);
 	} break;
 
 	default:
-	    abortIfReached ();
+            unreachable ();
     }
 
-    return ParseUp;
+    *ret_res = ParseUp;
+    return Result::Success;
 }
 
-static void
-parse_sequence_no_match (ParsingState         *parsing_state,
-			 ParsingStep_Sequence *step)
+static mt_throws Result
+parse_sequence_no_match (ParsingState         * const mt_nonnull parsing_state,
+			 ParsingStep_Sequence * const mt_nonnull step)
 {
     DEBUG_FLO (
-      errf->print ("Pargen.parse_sequence_no_match").pendl ();
-    );
+      errs->println (_func_);
+    )
 
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
     if (!step->parser_elements.isEmpty ()) {
 	List<ParserElement*>::DataIterator parser_el_iter (step->parser_elements);
 	while (!parser_el_iter.done ()) {
 	    DEBUG_INT (
-	      errf->print ("Pargen.parse_sequence_no_match: accepting element").pendl ();
-	    );
+	      errs->println (_func, "accepting element");
+	    )
 
-	    if (!step->acceptor.isNull ())
+	    if (step->acceptor)
 		step->acceptor->setParserElement (parser_el_iter.next ());
 	}
 
 	DEBUG (
-	    errf->print ("Pargen.parse_sequence_no_match: non-empty list").pendl ();
-	);
-	pop_step (parsing_state, true /* match */, false /* empty_match */);
+          errs->println (_func, "non-empty list");
+	)
+	if (!pop_step (parsing_state, true /* match */, false /* empty_match */))
+            return Result::Failure;
     } else {
-	if (step->optional)
-	    pop_step (parsing_state, true /* match */, true /* empty_match */);
-	else
-	    pop_step (parsing_state, false /* match */, false /* empty_match */);
+	if (step->optional) {
+	    if (!pop_step (parsing_state, true /* match */, true /* empty_match */))
+                return Result::Failure;
+        } else {
+            if (!pop_step (parsing_state, false /* match */, false /* empty_match */))
+                return Result::Failure;
+        }
     }
+
+    return Result::Success;
 }
 
-static void
-parse_sequence_match (ParsingState         *parsing_state,
-		      ParsingStep_Sequence *step)
+static mt_throws Result
+parse_sequence_match (ParsingState         * const mt_nonnull parsing_state,
+		      ParsingStep_Sequence * const mt_nonnull step)
 {
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
-//    Ref<Acceptor> acceptor = grab (static_cast <Acceptor*> (new ListAcceptor<ParserElement> (&step->parser_elements)));
-//    VSlab< ListAcceptor<ParserElement> >::Ref * const acceptor = parsing_state->list_acceptor_slab.alloc ();
-    VSlabRef< ListAcceptor<ParserElement> > acceptor =
+    VSlabRef< ListAcceptor<ParserElement> > const acceptor =
 	    VSlabRef< ListAcceptor<ParserElement> >::forRef < ListAcceptor<ParserElement> > (
 		    parsing_state->list_acceptor_slab.alloc ());
-//    VSlabRef< ListAcceptor<ParserElement> > acceptor (parsing_state->list_acceptor_slab.alloc ());
     acceptor->init (&step->parser_elements);
     for (;;) {
-	ParsingResult pres = parse_grammar (parsing_state, step->grammar, acceptor, false /* optional */);
+	ParsingResult pres;
+        if (!parse_grammar (parsing_state, step->grammar, acceptor, false /* optional */, &pres))
+            return Result::Failure;
+
 	if (pres == ParseNonemptyMatch)
 	    continue;
 
 	if (pres == ParseEmptyMatch ||
 	    pres == ParseNoMatch)
 	{
-	    parse_sequence_no_match (parsing_state, step);
-	} else
-	    abortIf (pres != ParseUp);
+	    if (!parse_sequence_no_match (parsing_state, step))
+                return Result::Failure;
+	} else {
+	    assert (pres == ParseUp);
+        }
 
 	break;
     }
+
+    return Result::Success;
 }
 
-static void
-parse_compound_no_match (ParsingState         *parsing_state,
-			 ParsingStep_Compound *step)
+static mt_throws Result
+parse_compound_no_match (ParsingState         * const mt_nonnull parsing_state,
+			 ParsingStep_Compound * const mt_nonnull step)
 {
     DEBUG_FLO (
-      errf->print ("Pargen.parse_compound_no_match").pendl ();
-    );
+      errs->println (_func_);
+    )
 
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
 #ifdef PARGEN_UPWARDS_JUMPS
     if (parsing_state->parser_config->upwards_jumps &&
@@ -1349,19 +1286,8 @@ parse_compound_no_match (ParsingState         *parsing_state,
 		    break;
 	    }
 
-#if 0
-	    abortIf (step->jump_grammar->grammar_type != Grammar::t_Switch);
-	    Grammar_Switch * const grammar__switch = static_cast <Grammar_Switch*> (step->jump_grammar);
-
-	    push_switch_step (parsing_state,
-			      grammar__switch,
-			      NULL  /* acceptor */,
-			      false /* optional */,
-			      step->jump_switch_grammar_entry);
-#endif
-
 	    SwitchGrammarEntry * const switch_ge = step->jump_switch_grammar_entry->data;
-	    abortIf (switch_ge->grammar->grammar_type != Grammar::t_Compound);
+	    assert (switch_ge->grammar->grammar_type == Grammar::t_Compound);
 	    Grammar_Compound * const grammar__compound = static_cast <Grammar_Compound*> (switch_ge->grammar.ptr ());
 
 	    push_compound_step (parsing_state,
@@ -1381,10 +1307,10 @@ parse_compound_no_match (ParsingState         *parsing_state,
 	    step->go_right_count = 0;
 
 	    DEBUG (
-		errf->print ("--- JUMP --- 0x").printHex ((Uint64) step->jump_compound_grammar_entry).pendl ();
+              errs->println ("--- JUMP --- 0x", fmt_hex, (Uint64) step->jump_compound_grammar_entry);
 	    )
 
-	    return;
+	    return Result::Success;
 	} while (0);
     }
 #endif
@@ -1396,23 +1322,22 @@ parse_compound_no_match (ParsingState         *parsing_state,
 					parsing_state->user_data);
 	}
 
-	pop_step (parsing_state, true /* mach */, true /* empty_match */);
+	if (!pop_step (parsing_state, true /* mach */, true /* empty_match */))
+            return Result::Failure;
     } else {
-	pop_step (parsing_state, false /* mach */, false /* empty_match */);
+	if (!pop_step (parsing_state, false /* mach */, false /* empty_match */))
+            return Result::Failure;
     }
+
+    return Result::Success;
 }
 
-static void
-parse_compound_match (ParsingState         *parsing_state,
-		      ParsingStep_Compound *step,
-		      bool                  empty_match)
+static mt_throws Result
+parse_compound_match (ParsingState         * const mt_nonnull parsing_state,
+		      ParsingStep_Compound * const mt_nonnull step,
+		      bool                   const empty_match)
 {
-    DEBUG_FLO (
-      errf->print ("Pargen.parse_compound_match").pendl ();
-    );
-
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
     if (!empty_match)
 	step->got_nonoptional_match = true;
@@ -1420,7 +1345,7 @@ parse_compound_match (ParsingState         *parsing_state,
     while (!step->jump_performed &&
 	   step->cur_subg_el != NULL)
     {
-	CompoundGrammarEntry &entry = step->cur_subg_el->data.der ();
+	CompoundGrammarEntry &entry = *step->cur_subg_el->data;
 	step->cur_subg_el = step->cur_subg_el->next;
 
 	if (entry.is_jump) {
@@ -1428,7 +1353,7 @@ parse_compound_match (ParsingState         *parsing_state,
 	    step->jump_grammar = entry.jump_grammar;
 	    step->jump_cb = entry.jump_cb;
 
-	    abortIf (entry.jump_grammar->grammar_type != Grammar::t_Switch);
+	    assert (entry.jump_grammar->grammar_type == Grammar::t_Switch);
 	    Grammar_Switch * const grammar__switch = static_cast <Grammar_Switch*> (entry.jump_grammar);
 
 	    if (entry.jump_switch_grammar_entry == NULL) {
@@ -1438,7 +1363,7 @@ parse_compound_match (ParsingState         *parsing_state,
 	    step->jump_switch_grammar_entry = entry.jump_switch_grammar_entry;
 
 	    SwitchGrammarEntry * const switch_ge = entry.jump_switch_grammar_entry->data;
-	    abortIf (switch_ge->grammar->grammar_type != Grammar::t_Compound);
+	    assert (switch_ge->grammar->grammar_type == Grammar::t_Compound);
 	    Grammar_Compound * const grammar__compound = static_cast <Grammar_Compound*> (switch_ge->grammar.ptr ());
 
 	    if (entry.jump_compound_grammar_entry == NULL &&
@@ -1454,15 +1379,14 @@ parse_compound_match (ParsingState         *parsing_state,
 
 	if (entry.inline_match_func != NULL) {
 	    DEBUG_CB (
-		errf->print ("Pargen.(Parser).parser_compound_match: calling intermediate accept_func()").pendl ();
+              errs->println (_func, "calling intermediate accept_func()");
 	    )
 	    // Note: This is the only place where inline match functions are called.
 // Deprecated	    entry.accept_func (step->parser_element, parsing_state, parsing_state->user_data);
 	    if (!entry.inline_match_func (step->parser_element, parsing_state, parsing_state->user_data)) {
 	      // Inline match has failed, so we have no match for the current
 	      // compound grammar.
-		parse_compound_no_match (parsing_state, step);
-		return;
+		return parse_compound_no_match (parsing_state, step);
 	    }
 
 	    continue;
@@ -1470,14 +1394,15 @@ parse_compound_match (ParsingState         *parsing_state,
 
 	if (entry.flags & CompoundGrammarEntry::Sequence) {
 	    DEBUG_INT (
-	      errf->print ("Pargen.parse_compound_match: sequence").pendl ();
-	    );
+	      errs->println (_func, "sequence");
+	    )
 
-// VSTACK	    Ref<ParsingStep_Sequence> new_step = grab (new ParsingStep_Sequence);
 	    VStack::Level const tmp_vstack_level = parsing_state->step_vstack.getLevel ();
 	    VStack::Level const tmp_el_level = parsing_state->el_vstack->getLevel ();
 	    ParsingStep_Sequence * const new_step =
-		    new (parsing_state->step_vstack.push_malign (sizeof (ParsingStep_Sequence))) ParsingStep_Sequence;
+		    new (parsing_state->step_vstack.push_malign (
+                                        sizeof (ParsingStep_Sequence), alignof (ParsingStep_Sequence)))
+                                ParsingStep_Sequence;
 	    new_step->vstack_level = tmp_vstack_level;
 	    new_step->el_level = tmp_el_level;
 	    new_step->acceptor = entry.createAcceptorFor (step->parser_element);
@@ -1488,47 +1413,52 @@ parse_compound_match (ParsingState         *parsing_state,
 // commit/cancel the checkpoint in pop_step() accordingly.
 //	    push_step (parsing_state, new_step, false /* new_checkpoint */);
 	    push_step (parsing_state, new_step);
-	    return;
+	    return Result::Success;
 	} else {
 	    DEBUG_INT (
-	      errf->print ("Pargen.parse_compound_match: not a sequence").pendl ();
-	    );
+                errs->println (_func, "not a sequence");
+	    )
 
 	    {
-	    DEBUG_INT (
-		errf->print ("Pargen.parse_compound_match: creating acceptor").pendl ();
-	    )
-	    VSlabRef<Acceptor> acceptor = entry.createAcceptorFor (step->parser_element);
-	    DEBUG_INT (
-		errf->print ("Pargen.parse_compound_match: acceptor: 0x").printHex ((Uint64) (Acceptor*) acceptor).pendl ();
-	    )
-	    ParsingResult pres = parse_grammar (parsing_state,
-						entry.grammar,
-						acceptor,
-						entry.flags & CompoundGrammarEntry::Optional);
-	    if (pres == ParseNonemptyMatch) {
-		step->got_nonoptional_match = true;
-		continue;
+                DEBUG_INT (
+                  errs->println (_func, "creating acceptor");
+                )
+                VSlabRef<Acceptor> acceptor = entry.createAcceptorFor (step->parser_element);
+                DEBUG_INT (
+                  errs->println (_func, "0x", fmt_hex, (Uint64) (Acceptor*) acceptor);
+                )
+                ParsingResult pres;
+                if (!parse_grammar (parsing_state,
+                                    entry.grammar,
+                                    acceptor,
+                                    entry.flags & CompoundGrammarEntry::Optional,
+                                    &pres))
+                {
+                    return Result::Failure;
+                }
+
+                if (pres == ParseNonemptyMatch) {
+                    step->got_nonoptional_match = true;
+                    continue;
+                }
+
+                if (pres == ParseEmptyMatch && (entry.flags & CompoundGrammarEntry::Optional))
+                    continue;
+
+                if (pres == ParseNoMatch)
+                    return parse_compound_no_match (parsing_state, step);
+                else
+                    assert (pres == ParseUp);
+
+                DEBUG_INT (
+                  errs->println (_func, "leaving test scope");
+                )
 	    }
-
-	    if (pres == ParseEmptyMatch && (entry.flags & CompoundGrammarEntry::Optional))
-		continue;
-
-	    if (pres == ParseNoMatch) {
-		parse_compound_no_match (parsing_state, step);
-		return;
-	    } else
-		abortIf (pres != ParseUp);
-
 	    DEBUG_INT (
-		errf->print ("Pargen.parse_compound_match: leaving test scope").pendl ();
-	    )
-	    }
-	    DEBUG_INT (
-		errf->print ("Pargen.parse_compound_match: left test scope").pendl ();
+              errs->println (_func, "left test scope");
 	    )
 
-	    return;
+	    return Result::Success;
 	}
     }
 
@@ -1541,7 +1471,7 @@ parse_compound_match (ParsingState         *parsing_state,
 	    step->grammar->match_func != NULL)
 	{
 	    DEBUG_CB (
-		errf->print ("Pargen.(Parser).parse_compound_match: calling match_func()").pendl ();
+              errs->println (_func, "calling match_func()");
 	    )
 	    if (!step->grammar->match_func (step->parser_element, parsing_state, parsing_state->user_data))
 		user_match = false;
@@ -1550,13 +1480,13 @@ parse_compound_match (ParsingState         *parsing_state,
 
     if (user_match) {
 	DEBUG_INT (
-	    errf->print ("Pargen.(Parser).parse_compound_match: match_func() returned true").pendl ();
+          errs->println (_func, "match_func() returned true");
 	)
 
 	if (!step->jump_performed) {
 	    if (step->grammar->accept_func != NULL) {
 		DEBUG_CB (
-		    errf->print ("Pargen.(Parser).parse_compound_match: calling accept_func()").pendl ();
+                  errs->println (_func, "calling accept_func()");
 		)
 		step->grammar->accept_func (step->parser_element,
 					    parsing_state,
@@ -1565,79 +1495,74 @@ parse_compound_match (ParsingState         *parsing_state,
 
 // TODO FIXME (explain)
 //	    if (!empty_match)
-	    if (!step->acceptor.isNull ()) {
+	    if (step->acceptor) {
 		DEBUG (
-		    errf->print ("parse_compound_match: calling setParserElement(): "
-				 "0x").printHex ((Uint64) step->parser_element).pendl ();
+                  errs->println (_func, "calling setParserElement(): "
+                                 "0x", fmt_hex, (Uint64) step->parser_element);
 		)
 		step->acceptor->setParserElement (step->parser_element);
 	    }
 	}
 
 	DEBUG (
-	    errf->print ("parse_compound_match: user_match").pendl ();
+          errs->println (_func, "user_match");
 	)
-	pop_step (parsing_state, true /* mach */, !step->got_nonoptional_match /* empty_match */);
+	if (!pop_step (parsing_state, true /* mach */, !step->got_nonoptional_match /* empty_match */))
+            return Result::Failure;
     } else {
 	DEBUG_INT (
-	    errf->print ("Pargen.(Parser).parse_compound_match: match_func() returned false").pendl ();
+          errs->println (_func, "match_func() returned false");
 	)
 
-	parse_compound_no_match (parsing_state, step);
+	if (!parse_compound_no_match (parsing_state, step))
+            return Result::Failure;
     }
+
+    return Result::Success;
 }
 
-static void
-parse_switch_final_match (ParsingState *parsing_state,
-			  ParsingStep_Switch *step,
-			  bool empty_match)
+static mt_throws Result
+parse_switch_final_match (ParsingState       * const mt_nonnull parsing_state,
+			  ParsingStep_Switch * const mt_nonnull step,
+			  bool                 const empty_match)
 {
-#if 0
-// Moved to parse_switch_no_match()
-    if (step->grammar->accept_func != NULL) {
-	DEBUG_CB (
-	    errf->print ("Pargen.(Parser).parse_switch_final_match: calling accept_func()").pendl ();
-	)
-	step->grammar->accept_func (step->parser_element,
-				    parsing_state,
-				    parsing_state->user_data);
-    }
-#endif
-
 // Wrong condition. We should set parser elements for empty matches as well.
 // Otherwise, "key = ;" yields NULL 'value' field in mconfig.
 //    if (!empty_match) {
-	if (!step->acceptor.isNull ()) {
+	if (step->acceptor) {
 	    DEBUG_INT (
-		errf->print ("Pargen.(Parser).parse_switch_final_match: calling setParserElement(): "
-			     "0x").printHex ((Uint64) step->parser_element).pendl ();
+              errs->println (_func, "calling setParserElement(): "
+                             "0x", fmt_hex, (Uint64) step->parser_element);
 	    )
 	    step->acceptor->setParserElement (step->parser_element);
 	}
 //    }
 
-    pop_step (parsing_state, true /* match */, empty_match);
+    if (!pop_step (parsing_state, true /* match */, empty_match))
+        return Result::Failure;
+
+    return Result::Success;
 }
 
-static void
-parse_switch_no_match_yet (ParsingState       *parsing_state,
-			   ParsingStep_Switch *step);
+static mt_throws Result
+parse_switch_no_match_yet (ParsingState       * mt_nonnull parsing_state,
+			   ParsingStep_Switch * mt_nonnull step);
 
-static void
-parse_switch_match (ParsingState       *parsing_state,
-		    ParsingStep_Switch *step,
-		    bool                match,
-		    bool                empty_match)
+static mt_throws Result
+parse_switch_match (ParsingState       * const mt_nonnull parsing_state,
+		    ParsingStep_Switch * const mt_nonnull step,
+		    bool                 const match,
+		    bool                 const empty_match)
 {
-    abortIf (parsing_state == NULL ||
-	     step == NULL          ||
-	     (empty_match && !match));
+    assert (parsing_state &&
+	    step &&
+	    !(empty_match && !match));
 
     DEBUG_INT (
-      errf->print ("Pargen.parse_switch_match, step->parser_element: "
-		   "0x").printHex ((Uint64) step->parser_element).print (", "
-		   "step->nlr_parser_element: 0x").printHex ((Uint64) step->nlr_parser_element).pendl ();
-    );
+      errs->println (_func, "step->parser_element: "
+                     "0x", fmt_hex, (Uint64) step->parser_element, ", "
+                     "step->nlr_parser_element: 0x", fmt_hex, (Uint64) step->nlr_parser_element);
+    )
 
     switch (step->state) {
 	case ParsingStep_Switch::State_NLR: {
@@ -1655,10 +1580,11 @@ parse_switch_match (ParsingState       *parsing_state,
 		step->got_empty_nlr_match = true;
 
 		DEBUG_INT (
-		    errf->print ("Pargen.(Parser).parse_switch_match (NLR, empty): "
-				 "calling parse_switch_no_match_yet()").pendl ();
+                    errs->println (_func, "(NLR, empty): "
+                                   "calling parse_switch_no_match_yet()");
 		)
-		parse_switch_no_match_yet (parsing_state, step);
+		if (!parse_switch_no_match_yet (parsing_state, step))
+                    return Result::Failure;
 	    } else {
 	      // We've got a non-empty match. Let's try parsing left-recursive grammars,
 	      // if any, with this match at the left.
@@ -1666,8 +1592,7 @@ parse_switch_match (ParsingState       *parsing_state,
 		if (match) {
 		    if (step->grammar->accept_func != NULL) {
 			DEBUG_CB (
-			    errf->print ("Pargen.(Parser).parse_switch_match: "
-					 "calling accept_func (NLR, non-empty)").pendl ();
+                          errs->println (_func, "calling accept_func (NLR, non-empty)");
 			)
 			step->grammar->accept_func (step->nlr_parser_element,
 						    parsing_state,
@@ -1681,10 +1606,11 @@ parse_switch_match (ParsingState       *parsing_state,
 		step->cur_lr_el = static_cast <Grammar_Switch*> (step->grammar)->grammar_entries.first;
 
 		DEBUG_INT (
-		    errf->print ("Pargen.(Parser).parse_switch_match (NLR, non-empty): "
-				 "calling parse_switch_no_match_yet()").pendl ();
+                  errs->println (_func, "(NLR, non-empty): "
+                                 "calling parse_switch_no_match_yet()");
 		)
-		parse_switch_no_match_yet (parsing_state, step);
+		if (!parse_switch_no_match_yet (parsing_state, step))
+                    return Result::Failure;
 	    }
 	} break;
 	case ParsingStep_Switch::State_LR: {
@@ -1696,11 +1622,13 @@ parse_switch_match (ParsingState       *parsing_state,
 	      // Moving on to the next left-recursive grammar.
 
 		DEBUG_INT (
-		    errf->print ("Pargen.(Parser).parse_switch_match (LR, empty): "
-				 "calling parse_switch_no_match_yet()").pendl ();
+                  errs->println (_func, "(LR, empty): "
+                                 "calling parse_switch_no_match_yet()");
 		)
-		parse_switch_no_match_yet (parsing_state, step);
-		return;
+		if (!parse_switch_no_match_yet (parsing_state, step))
+                    return Result::Failure;
+
+		return Result::Success;;
 	    }
 
 	    // Note: when we're building a long recursive chain of elements,
@@ -1715,7 +1643,7 @@ parse_switch_match (ParsingState       *parsing_state,
 	    // Calling accept_func early.
 	    if (step->grammar->accept_func != NULL) {
 		DEBUG_CB (
-		    errf->print ("Pargen.(Parser).parse_switch_match: calling accept_func").pendl ();
+                  errs->println (_func, "calling accept_func");
 		)
 		step->grammar->accept_func (step->parser_element,
 					    parsing_state,
@@ -1728,7 +1656,8 @@ parse_switch_match (ParsingState       *parsing_state,
 	    step->parser_element = NULL;
 	    step->cur_lr_el = static_cast <Grammar_Switch*> (step->grammar)->grammar_entries.first;
 
-	    parse_switch_no_match_yet (parsing_state, step);
+	    if (!parse_switch_no_match_yet (parsing_state, step))
+                return Result::Failure;
 
 // TODO Figure out how to call match_func() properly for left-recursive grammars.
 // The net result should be equivalent to what happens when dealing with othre
@@ -1736,43 +1665,41 @@ parse_switch_match (ParsingState       *parsing_state,
 #if 0
 	    if (step->grammar->match_func != NULL) {
 		DEBUG_CB (
-		    errf->print ("Pargen.(Parser).parse_switch_match: calling match_func()").pendl ();
+                  errs->println (_func, "calling match_func()");
 		)
 		if (!step->grammar->match_func (step->parser_element, parsing_state->user_data)) {
-		    parse_switch_no_match_yet (parsing_state, step);
-		    return;
+		    if (!parse_switch_no_match_yet (parsing_state, step))
+                        return Result::Failure;
+
+                    return Result::Success;
 		}
 	    }
 #endif
 	} break;
 	default:
-	   abortIfReached ();
+            unreachable ();
     }
+
+    return Result::Success;
 }
 
 static bool
-is_cur_variant (ParsingState * const parsing_state,
-		SwitchGrammarEntry const &entry)
+is_cur_variant (ParsingState       * const mt_nonnull parsing_state,
+		SwitchGrammarEntry * const mt_nonnull entry)
 {
-    if (entry.variants.isEmpty ())
+    if (entry->variants.isEmpty ())
 	return true;
 
-    List< Ref<String> >::DataIterator variant_iter (entry.variants);
+    List< StRef<String> >::DataIterator variant_iter (entry->variants);
     while (!variant_iter.done ()) {
-	Ref<String> &variant = variant_iter.next ();
-	if (parsing_state->variant.isNull () ||
-	    parsing_state->variant->isNullString ())
+        StRef<String> &variant = variant_iter.next ();
+	if (!parsing_state->variant ||
+	    parsing_state->variant->len() == 0)
 	{
-//	    errf->print ("--- VARIANT ").print (variant).print (" <-> ").print (parsing_state->default_variant).pendl ();
-	    if (compareByteArrays (variant->getMemoryDesc (),
-				   parsing_state->default_variant)
-			== ComparisonEqual)
-	    {
+	    if (equal (variant->mem(), parsing_state->default_variant))
 		return true;
-	    }
 	} else {
-//	    errf->print ("--- VARIANT ").print (variant).print (" <=> ").print (parsing_state->variant).pendl ();
-	    if (compareStrings (variant->getData (), parsing_state->variant->getData ()))
+	    if (equal (variant->mem(), parsing_state->variant->mem()))
 		return true;
 	}
     }
@@ -1781,9 +1708,10 @@ is_cur_variant (ParsingState * const parsing_state,
 }
 
 // Upwards optimization.
-static bool
-parse_switch_upwards_green_forward (ParsingState       * const parsing_state        /* non-null */,
-				    SwitchGrammarEntry * const switch_grammar_entry /* non-null */)
+static mt_throws Result
+parse_switch_upwards_green_forward (ParsingState       * const mt_nonnull parsing_state,
+				    SwitchGrammarEntry * const mt_nonnull switch_grammar_entry,
+                                    bool               * const mt_nonnull ret_res)
 {
 #ifdef PARGEN_FORWARD_OPTIMIZATION
   // Note: this is a raw non-optimized version.
@@ -1792,90 +1720,70 @@ parse_switch_upwards_green_forward (ParsingState       * const parsing_state    
   //       It contains overlapping entries (like "any token" at the end
   //       of the list).
 
-    if (switch_grammar_entry->any_tranzition)
-	return true;
+    if (switch_grammar_entry->any_tranzition) {
+        *ret_res = true;
+        return Result::Success;
+    }
 
-    ConstMemoryDesc token;
-    Ref<SimplyReferenced> user_obj;
+    ConstMemory token;
+    StRef<StReferenced> user_obj;
     void *user_ptr;
     {
 	TokenStream::PositionMarker pmark;
 	parsing_state->token_stream->getPosition (&pmark);
-	token = parsing_state->token_stream->getNextToken (&user_obj, &user_ptr);
-	parsing_state->token_stream->setPosition (&pmark);
+        {
+            if (!parsing_state->token_stream->getNextToken (&token, &user_obj, &user_ptr))
+                return Result::Failure;
+        }
+	if (!parsing_state->token_stream->setPosition (&pmark))
+            return Result::Failure;
     }
 
-    if (token.getLength () == 0)
-	return false;
+    if (token.len() == 0) {
+        *ret_res = false;
+        return Result::Success;
+    }
 
     {
-	List< Ref<TranzitionMatchEntry> >::DataIterator iter (
+	List< StRef<TranzitionMatchEntry> >::DataIterator iter (
 		switch_grammar_entry->tranzition_match_entries);
 	while (!iter.done ()) {
-	    Ref<TranzitionMatchEntry> &tranzition_match_entry = iter.next ();
+	    StRef<TranzitionMatchEntry> &tranzition_match_entry = iter.next ();
 
 	    DEBUG_OPT2 (
-		errf->print ("--- TOKEN MATCH CB").pendl ();
+              errs->println ("--- TOKEN MATCH CB");
 	    )
 
 	    if (tranzition_match_entry->token_match_cb (token,
 							user_ptr,
 							parsing_state->user_data))
 	    {
-//		errf->print ("Ut\n");
-		return true;
+                *ret_res = true;
+                return Result::Success;
 	    }
 	}
     }
 
-#if 0
-    {
-	List< Ref<TranzitionEntry> >::DataIterator iter (
-		switch_grammar_entry->tranzition_entries);
-	while (!iter.done ()) {
-	    Ref<TranzitionEntry> &tranzition_entry = iter.next ();
-
-#if 0
-// Deprecated
-	    if (tranzition_entry->token.isNull () ||
-		tranzition_entry->token->getLength () == 0)
-	    {
-//		errf->print ("Un\n");
-		return true;
-	    }
-#endif
-
-	    if (compareByteArrays (token,
-				   tranzition_entry->token->getMemoryDesc ())
-			== ComparisonEqual)
-	    {
-//		errf->print ("Uc\n");
-		return true;
-	    }
-	}
-    }
-#endif
-
-    /* FIXME getMemory() does not return a zero-terminated string */
     DEBUG_OPT2 (
-	errf->print ("--- FIND: ").print ((char const*) token.getMemory ()).pendl ();
+      errs->println ("--- FIND: ", token.mem());
     )
-//    if (switch_grammar_entry->tranzition_entries.find ((char const*) token.getMemory ()) != switch_grammar_entry->tranzition_entries.end ()) {
     if (switch_grammar_entry->tranzition_entries.lookup (token)) {
-//	errf->print ("Uc\n");
-	return true;
+        *ret_res = true;
+        return Result::Success;
     }
 
-//    errf->print ("!U\n");
-    return false;
+    *ret_res = false;
+    return Result::Success;
 #else
-    return true;
+    *ret_res = true;
+    return Result::Success;
 #endif // PARGEN_FORWARD_OPTIMIZATION
 }
 
-static bool
-parse_switch_upwards_green (ParsingState       * const parsing_state        /* non-null */,
-			    SwitchGrammarEntry * const switch_grammar_entry /* non-null */)
+static mt_throws Result
+parse_switch_upwards_green (ParsingState       * const mt_nonnull parsing_state,
+			    SwitchGrammarEntry * const mt_nonnull switch_grammar_entry,
+                            bool               * const mt_nonnull ret_res)
 {
   FUNC_NAME (
     char const * const _func_name = "Pargen.Parser.parse_switch_upwards_green";
@@ -1884,36 +1792,30 @@ parse_switch_upwards_green (ParsingState       * const parsing_state        /* n
 #ifdef PARGEN_NEGATIVE_CACHE
     if (parsing_state->negative_cache.isNegative (switch_grammar_entry->grammar)) {
 	DEBUG_NEGC (
-	    errf->print (_func_name).print (": negative ").print (switch_grammar_entry->grammar->toString ()).pendl ();
+          errs->println (_func, "negative ", switch_grammar_entry->grammar->toString ());
 	)
 
-//	if (parsing_state->debug_dump)
-//	    errf->print ("!");
-
-	return false;
+        *ret_res = false;
+        return Result::Success;
     }
 #endif
 
     if (switch_grammar_entry->grammar->optimized)
-	return parse_switch_upwards_green_forward (parsing_state, switch_grammar_entry);
+	return parse_switch_upwards_green_forward (parsing_state, switch_grammar_entry, ret_res);
 
-    return true;
+    *ret_res = true;
+    return Result::Success;
 }
 
-static void
-parse_switch_no_match_yet (ParsingState       * const parsing_state,
-			   ParsingStep_Switch * const step)
+static mt_throws Result
+parse_switch_no_match_yet (ParsingState       * const mt_nonnull parsing_state,
+			   ParsingStep_Switch * const mt_nonnull step)
 {
-  DEBUG_FLO (
-    static char const * const _func_name = "Pargen.Parser.parse_switch_no_match_yet";
-  )
-
     DEBUG_FLO (
-      errf->print (_func_name).pendl ();
+      errs->print (_func_);
     )
 
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
     // Here we're going to deal with left recursion.
     //
@@ -1967,7 +1869,7 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 	  // At this step we're parsing non-left-recursive grammars only.
 
 	    DEBUG (
-		errf->print ("Pargen.parse_switch_no_match_yet: NLR").pendl ();
+              errs->println (_func, "NLR");
 	    )
 
 	    // Workaround for the unfortunate side effect of acceptor initialization:
@@ -1975,16 +1877,16 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 	    ParserElement *tmp_nlr_parser_element = step->nlr_parser_element;
 
 #ifndef VSLAB_ACCEPTOR
-	    Ref<Acceptor> nlr_acceptor =
-		    grab (static_cast <Acceptor*> (new RefAcceptor<ParserElement> (&step->nlr_parser_element)));
+	    StRef<Acceptor> const nlr_acceptor =
+		    st_grab (static_cast <Acceptor*> (new (std::nothrow) RefAcceptor<ParserElement> (&step->nlr_parser_element)));
 #else
-	    VSlabRef< PtrAcceptor<ParserElement> > nlr_acceptor =
+	    VSlabRef< PtrAcceptor<ParserElement> > const nlr_acceptor =
 		    VSlabRef< PtrAcceptor<ParserElement> >::forRef < PtrAcceptor<ParserElement> > (
 			    parsing_state->ptr_acceptor_slab.alloc ());
 	    nlr_acceptor->init (&step->nlr_parser_element);
 	    DEBUG_INT (
-		errf->print ("Pargen.parse_switch_no_match_yet: NLR: acceptor: "
-			     "0x").printHex ((Uint64) (Acceptor*) nlr_acceptor).pendl ();
+              errs->println (_func, "NLR: acceptor: "
+                             "0x", fmt_hex, (Uint64) (Acceptor*) nlr_acceptor);
 	    )
 #endif
 
@@ -1993,24 +1895,29 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 	    bool got_new_step = false;
 	    while (step->cur_nlr_el != NULL) {
 		DEBUG (
-		    errf->print ("Pargen.parse_switch_no_match_yet: NLR: iteration").pendl ();
+                  errs->println (_func, "NLR: iteration");
 		)
 
-		SwitchGrammarEntry &entry = step->cur_nlr_el->data.der ();
+		SwitchGrammarEntry &entry = *step->cur_nlr_el->data;
 		step->cur_nlr_el = step->cur_nlr_el->next;
 
-		if (!is_cur_variant (parsing_state, entry))
+		if (!is_cur_variant (parsing_state, &entry))
 		    continue;
 
-		if (!parse_switch_upwards_green (parsing_state, &entry))
-		    continue;
+                {
+                    bool res = false;
+                    if (!parse_switch_upwards_green (parsing_state, &entry, &res))
+                        return Result::Failure;
+                    if (!res)
+                        continue;
+                }
 
 		// I suppose that the better option is to give up on detecting left-recursive
 		// grammars for the cases where subgrammar is not a compound one. For pargen-generated
 		// grammars this means we're never giving up :)
 		if (entry.grammar->grammar_type == Grammar::t_Compound) {
 		    DEBUG (
-			errf->print ("Pargen.parse_switch_no_match_yet: NLR: _Compound").pendl ();
+                      errs->println (_func, "NLR: _Compound");
 		    )
 
 		    Grammar_Compound *grammar = static_cast <Grammar_Compound*> (entry.grammar.ptr ());
@@ -2026,11 +1933,12 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 			}
 		    }
 
-// VSTACK		    Ref<ParsingStep_Compound> compound_step = grab (new ParsingStep_Compound);
 		    VStack::Level const tmp_vstack_level = parsing_state->step_vstack.getLevel ();
 		    VStack::Level const tmp_el_level = parsing_state->el_vstack->getLevel ();
 		    ParsingStep_Compound * const compound_step =
-			    new (parsing_state->step_vstack.push_malign (sizeof (ParsingStep_Compound))) ParsingStep_Compound;
+			    new (parsing_state->step_vstack.push_malign (
+                                                sizeof (ParsingStep_Compound), alignof (ParsingStep_Compound)))
+                                        ParsingStep_Compound;
 		    compound_step->vstack_level = tmp_vstack_level;
 		    compound_step->el_level = tmp_el_level;
 		    compound_step->lr_parent = step->grammar;
@@ -2040,15 +1948,13 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		    compound_step->cur_subg_el = grammar->grammar_entries.first;
 		    compound_step->parser_element = grammar->createParserElement (parsing_state->el_vstack);
 		    push_step (parsing_state, compound_step);
-
-//		    errf->print (_func_name).print (": new parser_element: 0x").printHex ((Uint64) compound_step->parser_element).pendl ();
 		} else {
 		    DEBUG (
-			errf->print ("Pargen.parse_switch_no_match_yet: NLR: non-compound").pendl ();
+                      errs->println (_func, "NLR: non-compound");
 		    )
 
 		    // TEST
-		    abortIfReached ();
+                    unreachable ();
 
 		    // Note: this path is currently inadequate.
 #if 0
@@ -2062,9 +1968,11 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		    if (pres == ParseNonemptyMatch) {
 			step->parser_element = step->nlr_parser_element;
 			// TODO Call match_func here (helps to avoid recursion)
-			parse_switch_match (parsing_state, step, true /* match */, false /* empty_match */);
-		    } else
-			abortIf (pres != ParseUp);
+			if (!parse_switch_match (parsing_state, step, true /* match */, false /* empty_match */))
+                            return Result::Failure;
+		    } else {
+			assert (pres == ParseUp);
+                    }
 #endif
 		}
 
@@ -2078,22 +1986,22 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		  // so we just accept it.
 
 		    DEBUG_INT (
-			errf->print ("Pargen.(Parser).parse_switch_no_match_yet: "
-				     "empty NLR match, step->nlr_parser_element: "
-				     "0x").printHex ((Uint64) step->nlr_parser_element).pendl ();
+                      errs->println (_func, "empty NLR match, step->nlr_parser_element: "
+                                     "0x", fmt_hex, (UintPtr) step->nlr_parser_element);
 		    )
 		    step->parser_element = step->nlr_parser_element;
 
 		    if (step->grammar->accept_func != NULL) {
 			DEBUG_CB (
-			    errf->print ("Pargen.(Parser).parse_switch_no_match_yet: calling accept_func()").pendl ();
+                          errs->println (_func, "calling accept_func()");
 			)
 			step->grammar->accept_func (step->parser_element,
 						    parsing_state,
 						    parsing_state->user_data);
 		    }
 
-		    parse_switch_final_match (parsing_state, step, true /* empty_match */);
+		    if (!parse_switch_final_match (parsing_state, step, true /* empty_match */))
+                        return Result::Failure;
 		} else {
 		  // We've tried all of the Switch grammar's non-left-recursive subgrammars,
 		  // and none of them match.
@@ -2105,7 +2013,8 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		  // Note: This code path and functions' naming is counterintuitive.
 		  // It would make sense to sort this out.
 
-		    parse_switch_match (parsing_state, step, false /* match */, false /* empty_match */);
+		    if (!parse_switch_match (parsing_state, step, false /* match */, false /* empty_match */))
+                        return Result::Failure;
 		}
 	    }
 	} break;
@@ -2113,36 +2022,35 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 	  // We're parsing only left-recursive grammars now.
 
 	    DEBUG (
-		errf->print ("Pargen.parse_switch_no_match_yet: LR").pendl ();
+              errs->println (_func, "LR");
 	    )
 
 #ifndef VSLAB_ACCEPTOR
-	    Ref<Acceptor> lr_acceptor =
-		    grab (static_cast <Acceptor*> (new RefAcceptor<ParserElement> (&step->parser_element)));
+	    StRef<Acceptor> const lr_acceptor =
+		    st_grab (static_cast <Acceptor*> (new (std::nothrow) RefAcceptor<ParserElement> (&step->parser_element)));
 #else
-	    VSlabRef< PtrAcceptor<ParserElement> > lr_acceptor =
+	    VSlabRef< PtrAcceptor<ParserElement> > const lr_acceptor =
 		    VSlabRef< PtrAcceptor<ParserElement> >::forRef < PtrAcceptor<ParserElement> > (
 			    parsing_state->ptr_acceptor_slab.alloc ());
 	    lr_acceptor->init (&step->parser_element);
 	    DEBUG_INT (
-		errf->print ("Pargen.parse_switch_no_match_yet: "
-			     "LR: acceptor: 0x").printHex ((Uint64) (Acceptor*) lr_acceptor).pendl ();
+              errs->println (_func, "LR: acceptor: 0x", fmt_hex, (Uint64) (Acceptor*) lr_acceptor);
 	    )
 #endif
 
 	    bool got_new_step = false;
 	    while (step->cur_lr_el != NULL) {
 		DEBUG (
-		    errf->print ("Pargen.parse_switch_no_match_yet: LR: iteration").pendl ();
+                  errs->println (_func, "LR: iteration");
 		)
 
-		SwitchGrammarEntry &entry = step->cur_lr_el->data.der ();
+		SwitchGrammarEntry &entry = *step->cur_lr_el->data;
 		step->cur_lr_el = step->cur_lr_el->next;
 
 		if (entry.grammar->grammar_type != Grammar::t_Compound)
 		    continue;
 
-		if (!is_cur_variant (parsing_state, entry))
+		if (!is_cur_variant (parsing_state, &entry))
 		    continue;
 
 	      // Note: checking negative cache here is pointless, since it will
@@ -2161,7 +2069,7 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		      // Proceeding to the next subgrammar.
 
 			DEBUG (
-			    errf->print ("Pargen.parse_switch_no_match_yet: LR: non-lr").pendl ();
+                          errs->println (_func, "LR: non-lr");
 			)
 
 			continue;
@@ -2180,11 +2088,12 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 
 		got_new_step = true;
 
-// VSTACK		Ref<ParsingStep_Compound> compound_step = grab (new ParsingStep_Compound);
 		VStack::Level const tmp_vstack_level = parsing_state->step_vstack.getLevel ();
 		VStack::Level const tmp_el_level = parsing_state->el_vstack->getLevel ();
 		ParsingStep_Compound * const compound_step =
-			new (parsing_state->step_vstack.push_malign (sizeof (ParsingStep_Compound))) ParsingStep_Compound;
+			new (parsing_state->step_vstack.push_malign (
+                                            sizeof (ParsingStep_Compound), alignof (ParsingStep_Compound)))
+                                    ParsingStep_Compound;
 		compound_step->vstack_level = tmp_vstack_level;
 		compound_step->el_level = tmp_el_level;
 		compound_step->lr_parent = step->grammar;
@@ -2202,7 +2111,7 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 
 		// Note: This is a hack: we create the checkpoint early to be able
 		// to call inline accept functions for match simulation.
-		if (!parsing_state->lookup_data.isNull ())
+		if (parsing_state->lookup_data)
 		    parsing_state->lookup_data->newCheckpoint ();
 //#endif
 
@@ -2212,9 +2121,9 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 
 		  // Note: It looks like calling these accept callbacks is confusing and does no good.
 
-		    List< Ref<CompoundGrammarEntry> >::DataIterator iter (grammar->grammar_entries);
+		    List< StRef<CompoundGrammarEntry> >::DataIterator iter (grammar->grammar_entries);
 		    while (!iter.done ()) {
-			Ref<CompoundGrammarEntry> &entry = iter.next ();
+			StRef<CompoundGrammarEntry> &entry = iter.next ();
 			if (entry->inline_match_func == NULL)
 			    break;
 
@@ -2222,14 +2131,9 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 			//
 			// [10.09.15] Not so temporal anymore. I think this should become
 			// a permanent ban.
-			errf->print ("Leading inline accept callbacks in left-recursive grammars "
-				     "are never called").pendl ();
-			abortIfReached ();
-
-#if 0
-// Deprecated
-			entry->accept_func (compound_step->parser_element, parsing_state, parsing_state->user_data);
-#endif
+                        errs->println (_func, "Leading inline accept callbacks in left-recursive grammars "
+                                       "are never called");
+                        unreachable ();
 		    }
 		}
 
@@ -2238,15 +2142,13 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		  // the remembered non-left-recursive match.
 
 		    CompoundGrammarEntry * const cg_entry = grammar->getFirstSubgrammarEntry ();
-		    abortIf (cg_entry == NULL);
+		    assert (cg_entry);
 
 		    if (cg_entry->assignment_func != NULL)
 			cg_entry->assignment_func (compound_step->parser_element, step->nlr_parser_element);
 		}
 
 		push_step (parsing_state, compound_step, false /* new_checkpoint */);
-
-//		errf->print (_func_name).print (": new parser_element: 0x").printHex ((Uint64) compound_step->parser_element).pendl ();
 		break;
 	    }
 
@@ -2255,7 +2157,7 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 	      // the remembered non-left-recursive match is the result.
 
 		DEBUG (
-		    errf->print ("Pargen.parse_switch_no_match_yet: LR: none match").pendl ();
+                  errs->print (_func, "LR: none match");
 		)
 
 		step->parser_element = step->nlr_parser_element;
@@ -2264,130 +2166,135 @@ parse_switch_no_match_yet (ParsingState       * const parsing_state,
 		    step->grammar->match_func != NULL)
 		{
 		    DEBUG_CB (
-			errf->print ("Pargen.(Parser).parse_switch_no_match_yet: calling match_func()").pendl ();
+                      errs->println (_func, "calling match_func()");
 		    )
-		    if (!step->grammar->match_func (step->parser_element, parsing_state, parsing_state->user_data)) {
-			pop_step (parsing_state, false /* match */, false /* empty_match */);
-			return;
-		    }
+		    if (!step->grammar->match_func (step->parser_element, parsing_state, parsing_state->user_data))
+			return pop_step (parsing_state, false /* match */, false /* empty_match */);
 		}
 
 		if (step->got_lr_match) {
 		  // We've got a left-recursive match.
 
-		    parse_switch_final_match (parsing_state, step, false /* empty_match */);
+		    if (!parse_switch_final_match (parsing_state, step, false /* empty_match */))
+                        return Result::Failure;
 		} else {
 		    if (!step->got_nonempty_nlr_match && !step->got_empty_nlr_match) {
 			if (step->optional) {
 			    if (step->grammar->accept_func != NULL) {
 				DEBUG_CB (
-				    errf->print ("Pargen.(Parser).parse_switch_no_match_yet: calling accept_func(NULL)").pendl ();
+                                  errs->println (_func, "calling accept_func(NULL)");
 				)
 				step->grammar->accept_func (NULL,
 							    parsing_state,
 							    parsing_state->user_data);
 			    }
 
-			    pop_step (parsing_state, true /* match */, true /* empty_match */);
+			    if (!pop_step (parsing_state, true /* match */, true /* empty_match */))
+                                return Result::Failure;
 			} else
-			    pop_step (parsing_state, false /* match */, false /* empty_match */);
+			    if (!pop_step (parsing_state, false /* match */, false /* empty_match */))
+                                return Result::Failure;
 		    } else {
 			if (step->got_empty_nlr_match) {
 			    if (step->grammar->accept_func != NULL) {
 				DEBUG_CB (
-				    errf->print ("Pargen.(Parser).parse_switch_no_match_yet: calling accept_func(NULL)").pendl ();
+                                  errs->println (_func, "calling accept_func(NULL)");
 				)
 				step->grammar->accept_func (NULL,
 							    parsing_state,
 							    parsing_state->user_data);
 			    }
 
-			    parse_switch_final_match (parsing_state, step, true /* empty_match */);
+			    if (!parse_switch_final_match (parsing_state, step, true /* empty_match */))
+                                return Result::Failure;
 			} else
-			    parse_switch_final_match (parsing_state, step, false /* empty_match */);
+			    if (!parse_switch_final_match (parsing_state, step, false /* empty_match */))
+                                return Result::Failure;
 		    }
 		}
 	    }
 	} break;
 	default:
-	    abortIfReached ();
+            unreachable ();
     }
 
     DEBUG (
-	errf->print ("Pargen.parse_switch_no_match_yet: done").pendl ();
+      errs->println (_func, "done");
     )
+    return Result::Success;
 }
 
-static void
-parse_alias (ParsingState      *parsing_state,
-	     ParsingStep_Alias *step)
+static mt_throws Result
+parse_alias (ParsingState      * const mt_nonnull parsing_state,
+	     ParsingStep_Alias * const mt_nonnull step)
 {
-  FUNC_NAME (
-    static char const * const _func_name = "Pargen.Parser.parse_alias";
-  )
-
     DEBUG_FLO (
-	errf->print (_func_name).pendl ();
+      errs->println (_func_);
     )
 
-    abortIf (parsing_state == NULL);
-    abortIf (step == NULL);
+    assert (parsing_state && step);
 
-//    Ref< RefAcceptor<ParserElement> > acceptor = grab (new RefAcceptor<ParserElement> (&step->parser_element));
     VSlabRef< PtrAcceptor<ParserElement> > acceptor =
 	    VSlabRef< PtrAcceptor<ParserElement> >::forRef < PtrAcceptor<ParserElement> > (
 		    parsing_state->ptr_acceptor_slab.alloc ());
     acceptor->init (&step->parser_element);
 
-    ParsingResult pres = parse_grammar (parsing_state,
-					static_cast <Grammar_Alias*> (step->grammar)->aliased_grammar,
-					acceptor,
-					step->optional);
+    ParsingResult pres;
+    if (!parse_grammar (parsing_state,
+                        static_cast <Grammar_Alias*> (step->grammar)->aliased_grammar,
+                        acceptor,
+                        step->optional,
+                        &pres))
+    {
+        return Result::Failure;
+    }
+
     if (pres == ParseUp)
-	return;
+	return Result::Success;
 
     switch (pres) {
 	case ParseNonemptyMatch:
-	    pop_step (parsing_state, true /* match */, false /* empty_match */);
+	    if (!pop_step (parsing_state, true /* match */, false /* empty_match */))
+                return Result::Failure;
 	    break;
 	case ParseEmptyMatch:
-	    pop_step (parsing_state, true /* match */, true /* empty_match */);
+	    if (!pop_step (parsing_state, true /* match */, true /* empty_match */))
+                return Result::Failure;
 	    break;
 	case ParseNoMatch:
 	    DEBUG_INT (
-		errf->print (_func_name).print (": pop_step: false, false").pendl ();
+              errs->println (_func, "pop_step: false, false");
 	    )
-	    pop_step (parsing_state, false /* match */, false /* empty_match */);
+	    if (!pop_step (parsing_state, false /* match */, false /* empty_match */))
+                return Result::Failure;
 	    break;
 	default:
-	    abortIfReached ();
+            unreachable ();
     }
+
+    return Result::Success;
 }
 
-static void
-parse_up (ParsingState *parsing_state)
+static mt_throws Result
+parse_up (ParsingState * const mt_nonnull parsing_state)
 {
-  FUNC_NAME (
-    static char const * const _func_name = "Pargen.Parser.parse_up";
-  )
-
-    abortIf (parsing_state == NULL);
+    assert (parsing_state);
 
     ParsingStep &_step = parsing_state->getLastStep ();
 
     switch (_step.parsing_step_type) {
 	case ParsingStep::t_Sequence: {
 	    DEBUG_INT (
-	      errf->print (_func_name).print (": ParsingStep::_Sequence").pendl ();
-	    );
+	      errs->println (_func, "ParsingStep::_Sequence");
+	    )
 	    ParsingStep_Sequence &step = static_cast <ParsingStep_Sequence&> (_step);
 
-	    parse_sequence_match (parsing_state, &step);
+            return parse_sequence_match (parsing_state, &step);
 	} break;
 	case ParsingStep::t_Compound: {
 	    DEBUG_INT (
-	      errf->print (_func_name).print (": ParsingStep::_Compound").pendl ();
-	    );
+	      errs->println (_func, "ParsingStep::_Compound");
+	    )
 
 	    ParsingStep_Compound &step = static_cast <ParsingStep_Compound&> (_step);
 
@@ -2396,29 +2303,29 @@ parse_up (ParsingState *parsing_state)
 	      //       2) This assertion should be hit for lr grammars.
 	      //
 	      // The compound grammar happens to be left-recursive. We do not support that.
-		abortIfReached ();
+                unreachable ();
 	    }
 
 	    if (step.grammar->begin_func != NULL)
 		step.grammar->begin_func (parsing_state->user_data);
 
-	    parse_compound_match (parsing_state, &step, true /* empty_match */);
+	    return parse_compound_match (parsing_state, &step, true /* empty_match */);
 	} break;
 	case ParsingStep::t_Switch: {
 	    DEBUG_INT (
-	      errf->print (_func_name).print (": ParsingStep::_Switch").pendl ();
-	    );
+	      errs->println (_func, "ParsingStep::_Switch");
+	    )
 
 	    ParsingStep_Switch &step = static_cast <ParsingStep_Switch&> (_step);
 
 	    if (step.grammar->begin_func != NULL)
 		step.grammar->begin_func (parsing_state->user_data);
 
-	    parse_switch_no_match_yet (parsing_state, &step);
+	    return parse_switch_no_match_yet (parsing_state, &step);
 	} break;
 	case ParsingStep::t_Alias: {
 	    DEBUG_INT (
-		errf->print (_func_name).print (": ParsingStep::_Alias").pendl ();
+              errs->println (_func, "ParsingStep::_Alias");
 	    )
 
 	    ParsingStep_Alias &step = static_cast <ParsingStep_Alias&> (_step);
@@ -2426,60 +2333,72 @@ parse_up (ParsingState *parsing_state)
 	    if (step.grammar->begin_func != NULL)
 		step.grammar->begin_func (parsing_state->user_data);
 
-	    parse_alias (parsing_state, &step);
+	    return parse_alias (parsing_state, &step);
 	} break;
 	default:
-	    abortIfReached ();
+            unreachable ();
     };
+
+    unreachable ();
+    return Result::Success;
 }
 
-static void
-parse_down (ParsingState *parsing_state)
+static mt_throws Result
+parse_down (ParsingState * const mt_nonnull parsing_state)
 {
-    abortIf (parsing_state == NULL);
+    assert (parsing_state);
 
     ParsingStep &_step = parsing_state->getLastStep ();
 
     switch (_step.parsing_step_type) {
 	case ParsingStep::t_Sequence: {
 	    DEBUG_INT (
-	      errf->print ("Pargen.parse_down: ParsingStep::_Sequence").pendl ();
-	    );
+	      errs->println (_func, "ParsingStep::_Sequence");
+	    )
 
 	    ParsingStep_Sequence &step = static_cast <ParsingStep_Sequence&> (_step);
 
-	    if (parsing_state->match)
-		parse_sequence_match (parsing_state, &step);
-	    else
-		parse_sequence_no_match (parsing_state, &step);
+	    if (parsing_state->match) {
+		if (!parse_sequence_match (parsing_state, &step))
+                    return Result::Failure;
+            } else {
+		if (!parse_sequence_no_match (parsing_state, &step))
+                    return Result::Failure;
+            }
 	} break;
 	case ParsingStep::t_Compound: {
 	    DEBUG_INT (
-	      errf->print ("Pargen.parse_down: ParsingStep::_Compound").pendl ();
-	    );
+	      errs->println (_func, "ParsingStep::_Compound");
+	    )
 
 	    ParsingStep_Compound &step = static_cast <ParsingStep_Compound&> (_step);
 
-	    if (parsing_state->match)
-		parse_compound_match (parsing_state, &step, parsing_state->empty_match);
-	    else
-		parse_compound_no_match (parsing_state, &step);
+	    if (parsing_state->match) {
+		if (!parse_compound_match (parsing_state, &step, parsing_state->empty_match))
+                    return Result::Failure;
+            } else {
+		if (!parse_compound_no_match (parsing_state, &step))
+                    return Result::Failure;
+            }
 	} break;
 	case ParsingStep::t_Switch: {
 	    DEBUG_INT (
-	      errf->print ("Pargen.parse_down: ParsingStep::_Switch").pendl ();
-	    );
+	      errs->println (_func, "ParsingStep::_Switch");
+	    )
 
 	    ParsingStep_Switch &step = static_cast <ParsingStep_Switch&> (_step);
 
-	    if (parsing_state->match)
-		parse_switch_match (parsing_state, &step, true /* match */, parsing_state->empty_match);
-	    else
-		parse_switch_no_match_yet (parsing_state, &step);
+	    if (parsing_state->match) {
+		if (!parse_switch_match (parsing_state, &step, true /* match */, parsing_state->empty_match))
+                    return Result::Failure;
+            } else {
+		if (!parse_switch_no_match_yet (parsing_state, &step))
+                    return Result::Failure;
+            }
 	} break;
 	case ParsingStep::t_Alias: {
 	    DEBUG_INT (
-		errf->print ("Pargen.parse_down: ParsingStep::_Alias").pendl ();
+              errs->println (_func, "ParsingStep::_Alias");
 	    )
 
 	    ParsingStep_Alias &step = static_cast <ParsingStep_Alias&> (_step);
@@ -2488,14 +2407,14 @@ parse_down (ParsingState *parsing_state)
 		bool user_match = true;
 		if (step.grammar->match_func != NULL) {
 		    DEBUG_CB (
-			errf->print ("Pargen.parse_down: calling match_func()").pendl ();
+                      errs->println (_func, "calling match_func()");
 		    )
 		    parsing_state->position_changed = false;
 		    if (!step.grammar->match_func (step.parser_element, parsing_state, parsing_state->user_data))
 			user_match = false;
 
 		    if (parsing_state->position_changed)
-			return;
+			return Result::Success;;
 		}
 
 		if (user_match) {
@@ -2503,11 +2422,11 @@ parse_down (ParsingState *parsing_state)
 			step.grammar->accept_func (step.parser_element, parsing_state, parsing_state->user_data);
 
 		    // This is a non-empty match case.
-//		    abortIf (step.parser_element.isNull ());
-		    if (!step.acceptor.isNull ())
+		    if (step.acceptor)
 			step.acceptor->setParserElement (step.parser_element);
 
-		    pop_step (parsing_state, true /* match */, false /* empty_match */);
+		    if (!pop_step (parsing_state, true /* match */, false /* empty_match */))
+                        return Result::Failure;
 		} else {
 		  // FIXME Code duplication (see right below)
 
@@ -2517,224 +2436,34 @@ parse_down (ParsingState *parsing_state)
 			if (step.grammar->accept_func != NULL)
 			    step.grammar->accept_func (NULL, parsing_state, parsing_state->user_data);
 
-			pop_step (parsing_state, true /* match */, true /* empty_match */);
+			if (!pop_step (parsing_state, true /* match */, true /* empty_match */))
+                            return Result::Failure;
 		    } else {
-			pop_step (parsing_state, false /* match */, false /* empty_match */);
+			if (!pop_step (parsing_state, false /* match */, false /* empty_match */))
+                            return Result::Failure;
 		    }
 		}
 	    } else {
 		if (_step.optional) {
 		    // This is an empty match case.
-		    abortIf (step.parser_element != NULL);
+		    assert (!step.parser_element);
 		    if (step.grammar->accept_func != NULL)
 			step.grammar->accept_func (NULL, parsing_state, parsing_state->user_data);
 
-		    pop_step (parsing_state, true /* match */, true /* empty_match */);
+		    if (!pop_step (parsing_state, true /* match */, true /* empty_match */))
+                        return Result::Failure;
 		} else {
-		    pop_step (parsing_state, false /* match */, false /* empty_match */);
+		    if (!pop_step (parsing_state, false /* match */, false /* empty_match */))
+                        return Result::Failure;
 		}
 	    }
 	} break;
 	default:
-	    abortIfReached ();
+            unreachable ();
     }
+
+    return Result::Success;
 }
-
-#if 0
-// Original version
-
-// If 'tranzition_entries' is NULL, then we're in the process of
-// iterating the nodes of the grammar.
-//
-// If 'tranzition_entries' is non-null, then fills 'tranzition_entries'
-// with possible tranzitions for 'grammar'.
-//
-// If 'tranzition_entries' is non-null and the path is fully optional,
-// then 'ret_optional' is set to true on return. Otherwise, 'ret_optional'
-// is set to false. If 'tranzition_entries' is null, then the value
-// of 'ret_optional' after return is undefined. 'ret_optional' may be null.
-//
-// Returns 'true' if a tranzition has been recorded for the current path.
-// If 'tranzition_entries' is null, then return value is undefined.
-//
-// TODO Separate 'tranzition_entries' filling from initial walkthrough.
-//
-static bool
-do_optimizeGrammar (Grammar                      * const grammar            /* non-null */,
-		    List< Ref<TranzitionEntry> > * const tranzition_entries /* non-null */,
-		    bool                         * const ret_optional,
-		    Size                         * const loop_id            /* non-null */)
-{
-    if (ret_optional != NULL)
-	*ret_optional = false;
-
-    if (tranzition_entries == NULL) {
-	if (grammar->optimized)
-	    return false;
-
-	grammar->optimized = true;
-    } else {
-	if (grammar->loop_id == *loop_id) {
-	    if (ret_optional != NULL)
-		*ret_optional = true;
-
-	    return false;
-	}
-
-	grammar->loop_id = *loop_id;
-    }
-
-    switch (grammar->grammar_type) {
-	case Grammar::t_Immediate: {
-	    Grammar_Immediate_SingleToken * const grammar__immediate =
-		    static_cast <Grammar_Immediate_SingleToken*> (grammar);
-
-	    if (tranzition_entries != NULL) {
-		if (grammar__immediate->getToken ().isNull () ||
-		    grammar__immediate->getToken ()->getLength () == 0)
-		{
-		    if (!grammar__immediate->token_match_cb_name.isNull ()) {
-			DEBUG_OPT (
-			    errf->print ("  {").print (grammar__immediate->token_match_cb_name).print ("}");
-			)
-		    } else {
-			abortIf (grammar__immediate->token_match_cb != NULL);
-			DEBUG_OPT (
-			    errf->print (" ANY");
-			)
-		    }
-		} else {
-		    DEBUG_OPT (
-			errf->print (" ").print (grammar__immediate->getToken ()).print ("");
-		    )
-		}
-
-		Ref<TranzitionEntry> tranzition_entry = grab (new TranzitionEntry);
-		tranzition_entry->token = grammar__immediate->getToken ();
-		tranzition_entry->token_match_cb = grammar__immediate->token_match_cb;
-		tranzition_entries->append (tranzition_entry);
-	    }
-
-	    return true;
-	} break;
-	case Grammar::t_Compound: {
-	    Grammar_Compound * const grammar__compound =
-		    static_cast <Grammar_Compound*> (grammar);
-
-	    Bool got_tranzition = false;
-	    Bool optional = true;
-	    List< Ref<CompoundGrammarEntry> >::DataIterator iter (grammar__compound->grammar_entries);
-	    while (!iter.done ()) {
-		Ref<CompoundGrammarEntry> &compound_grammar_entry = iter.next ();
-
-		if (compound_grammar_entry->grammar.isNull ()) {
-		  // _AcceptCb or _UniversalAcceptCb or UpwardsAnchor.
-		    continue;
-		}
-
-		if (tranzition_entries != NULL) {
-		    bool tmp_optional = false;
-		    got_tranzition = do_optimizeGrammar (compound_grammar_entry->grammar,
-							 tranzition_entries,
-							 &tmp_optional,
-							 loop_id);
-		    if (!tmp_optional &&
-			!(compound_grammar_entry->flags & CompoundGrammarEntry::Optional))
-		    {
-//			errf->print ("Z");
-			optional = false;
-		    }
-
-		    if (!optional) {
-//			errf->print ("X");
-			break;
-		    }
-		} else {
-		    do_optimizeGrammar (compound_grammar_entry->grammar,
-					NULL /* tranzition_entries */,
-					NULL /* ret_optional */,
-					loop_id);
-		}
-	    }
-
-	    if (ret_optional != NULL)
-		*ret_optional = optional;
-
-	    return got_tranzition;
-	} break;
-	case Grammar::t_Switch: {
-	    Grammar_Switch * const grammar__switch =
-		    static_cast <Grammar_Switch*> (grammar);
-
-	    Bool got_tranzition = false;
-	    Bool optional = true;
-	    List< Ref<SwitchGrammarEntry> >::DataIterator iter (grammar__switch->grammar_entries);
-	    while (!iter.done ()) {
-		Ref<SwitchGrammarEntry> &switch_grammar_entry = iter.next ();
-
-		if (tranzition_entries != NULL) {
-		    bool tmp_optional = false;
-		    got_tranzition = do_optimizeGrammar (switch_grammar_entry->grammar,
-							 tranzition_entries,
-							 &tmp_optional,
-							 loop_id);
-		    if (!tmp_optional &&
-			!(switch_grammar_entry->flags & CompoundGrammarEntry::Optional))
-		    {
-			optional = false;
-		    }
-		} else {
-		    DEBUG_OPT (
-			errf->print ("").print (switch_grammar_entry->grammar->toString ()).print (": ");
-		    )
-		    {
-			bool tmp_optional = false;
-			do_optimizeGrammar (switch_grammar_entry->grammar,
-					    &switch_grammar_entry->tranzition_entries,
-					    &tmp_optional,
-					    loop_id);
-			if (tmp_optional) {
-			  // Fully optional grammars should not be upwards-optimized.
-			  // We add 'any' token to force entering.
-			    switch_grammar_entry->tranzition_entries.append (grab (new TranzitionEntry));
-			}
-		    }
-		    DEBUG_OPT (
-			errf->print ("\n");
-		    )
-
-		    abortIf (*loop_id + 1 <= *loop_id);
-		    (*loop_id) ++;
-		    do_optimizeGrammar (switch_grammar_entry->grammar,
-					NULL /* tranzition_entries */,
-					NULL /* ret_optional */,
-					loop_id);
-		}
-	    }
-
-	    if (ret_optional != NULL)
-		*ret_optional = optional;
-
-	    return got_tranzition;
-	} break;
-	case Grammar::t_Alias: {
-	    Grammar_Alias * const grammar_alias =
-		    static_cast <Grammar_Alias*> (grammar);
-
-	    return do_optimizeGrammar (grammar_alias->aliased_grammar,
-				       tranzition_entries,
-				       ret_optional,
-				       loop_id);
-	} break;
-	default:
-	    abortIfReached ();
-    }
-
-    // Unreachable
-    abortIfReached ();
-    return false;
-}
-#endif
 
 // If 'tranzition_entries' is NULL, then we're in the process of
 // iterating the nodes of the grammar.
@@ -2753,25 +2482,24 @@ do_optimizeGrammar (Grammar                      * const grammar            /* n
 // TODO Separate 'tranzition_entries' filling from initial walkthrough.
 //
 static bool
-do_optimizeGrammar (Grammar                               * const grammar            /* non-null */,
-//		    std::hash_set< Ref<TranzitionEntry> > * const tranzition_entries /* non-null */,
+do_optimizeGrammar (Grammar                                 * const mt_nonnull grammar,
 		    SwitchGrammarEntry::TranzitionEntryHash * const tranzition_entries,
-		    List< Ref<TranzitionMatchEntry> > * const tranzition_match_entries,
-		    SwitchGrammarEntry                * const param_switch_grammar_entry,
-		    bool                                  * const ret_optional,
-		    Size                                  * const loop_id            /* non-null */)
+		    List< StRef<TranzitionMatchEntry> >     * const tranzition_match_entries,
+		    SwitchGrammarEntry                      * const param_switch_grammar_entry,
+		    bool                                    * const ret_optional,
+		    Size                                    * const mt_nonnull loop_id)
 {
-    if (ret_optional != NULL)
+    if (ret_optional)
 	*ret_optional = false;
 
-    if (tranzition_entries == NULL) {
+    if (!tranzition_entries) {
 	if (grammar->optimized)
 	    return false;
 
 	grammar->optimized = true;
     } else {
 	if (grammar->loop_id == *loop_id) {
-	    if (ret_optional != NULL)
+	    if (ret_optional)
 		*ret_optional = true;
 
 	    return false;
@@ -2785,48 +2513,41 @@ do_optimizeGrammar (Grammar                               * const grammar       
 	    Grammar_Immediate_SingleToken * const grammar__immediate =
 		    static_cast <Grammar_Immediate_SingleToken*> (grammar);
 
-	    if (tranzition_entries != NULL) {
-		if (grammar__immediate->getToken ().isNull () ||
-		    grammar__immediate->getToken ()->getLength () == 0)
+	    if (tranzition_entries) {
+		if (!grammar__immediate->getToken() ||
+		    grammar__immediate->getToken()->len() == 0)
 		{
-		    if (!grammar__immediate->token_match_cb_name.isNull ()) {
+		    if (grammar__immediate->token_match_cb_name) {
 			DEBUG_OPT (
-			    errf->print ("  {").print (grammar__immediate->token_match_cb_name).print ("}");
+			    errs->print ("  {", grammar__immediate->token_match_cb_name, "}");
 			)
 		    } else {
-			abortIf (grammar__immediate->token_match_cb != NULL);
+			assert (!grammar__immediate->token_match_cb);
 			DEBUG_OPT (
-			    errf->print (" ANY");
+			    errs->print (" ANY");
 			)
 
 			param_switch_grammar_entry->any_tranzition = true;
 		    }
 		} else {
 		    DEBUG_OPT (
-			errf->print (" ").print (grammar__immediate->getToken ()).print ("");
+			errs->print (" ", grammar__immediate->getToken ());
 		    )
 		}
 
-		if (!grammar__immediate->token_match_cb_name.isNull ()) {
-		    Ref<TranzitionMatchEntry> tranzition_match_entry = grab (new TranzitionMatchEntry);
+		if (grammar__immediate->token_match_cb_name) {
+		    StRef<TranzitionMatchEntry> const tranzition_match_entry = st_grab (new TranzitionMatchEntry);
 		    tranzition_match_entry->token_match_cb = grammar__immediate->token_match_cb;
 		    DEBUG_OPT2 (
-			errf->print ("--- TRANZITION MATCH ENTRY").pendl ();
+                      errs->println ("--- TRANZITION MATCH ENTRY");
 		    )
 		    tranzition_match_entries->append (tranzition_match_entry);
 		} else
-		if (!grammar__immediate->getToken ().isNull () &&
-		    grammar__immediate->getToken ()->getLength () > 0)
+		if (grammar__immediate->getToken () &&
+		    grammar__immediate->getToken ()->len() > 0)
 		{
-//		    Ref<TranzitionEntry> tranzition_entry = grab (new TranzitionEntry);
-//		    tranzition_entry->token = grammar__immediate->getToken ();
-//		    tranzitioin_entries.insert (tranzition_entry);
-
-//		    tranzition_entries->insert (grammar__immediate->getToken ()->getData ());
-
 		    SwitchGrammarEntry::TranzitionEntry * const tranzition_entry = new SwitchGrammarEntry::TranzitionEntry;
-		    tranzition_entry->grammar_name = grab (new String (grammar__immediate->getToken()->getMemoryDesc()));
-
+		    tranzition_entry->grammar_name = st_grab (new String (grammar__immediate->getToken()->mem()));
 		    tranzition_entries->add (tranzition_entry);
 		}
 	    }
@@ -2839,16 +2560,16 @@ do_optimizeGrammar (Grammar                               * const grammar       
 
 	    Bool got_tranzition = false;
 	    Bool optional = true;
-	    List< Ref<CompoundGrammarEntry> >::DataIterator iter (grammar__compound->grammar_entries);
+	    List< StRef<CompoundGrammarEntry> >::DataIterator iter (grammar__compound->grammar_entries);
 	    while (!iter.done ()) {
-		Ref<CompoundGrammarEntry> &compound_grammar_entry = iter.next ();
+		StRef<CompoundGrammarEntry> &compound_grammar_entry = iter.next ();
 
-		if (compound_grammar_entry->grammar.isNull ()) {
+		if (!compound_grammar_entry->grammar) {
 		  // _AcceptCb or _UniversalAcceptCb or UpwardsAnchor.
 		    continue;
 		}
 
-		if (tranzition_entries != NULL) {
+		if (tranzition_entries) {
 		    bool tmp_optional = false;
 		    got_tranzition = do_optimizeGrammar (compound_grammar_entry->grammar,
 							 tranzition_entries,
@@ -2859,14 +2580,11 @@ do_optimizeGrammar (Grammar                               * const grammar       
 		    if (!tmp_optional &&
 			!(compound_grammar_entry->flags & CompoundGrammarEntry::Optional))
 		    {
-//			errf->print ("Z");
 			optional = false;
 		    }
 
-		    if (!optional) {
-//			errf->print ("X");
+		    if (!optional)
 			break;
-		    }
 		} else {
 		    do_optimizeGrammar (compound_grammar_entry->grammar,
 					NULL /* tranzition_entries */,
@@ -2877,7 +2595,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
 		}
 	    }
 
-	    if (ret_optional != NULL)
+	    if (ret_optional)
 		*ret_optional = optional;
 
 	    return got_tranzition;
@@ -2888,11 +2606,11 @@ do_optimizeGrammar (Grammar                               * const grammar       
 
 	    Bool got_tranzition = false;
 	    Bool optional = true;
-	    List< Ref<SwitchGrammarEntry> >::DataIterator iter (grammar__switch->grammar_entries);
+	    List< StRef<SwitchGrammarEntry> >::DataIterator iter (grammar__switch->grammar_entries);
 	    while (!iter.done ()) {
-		Ref<SwitchGrammarEntry> &switch_grammar_entry = iter.next ();
+		StRef<SwitchGrammarEntry> &switch_grammar_entry = iter.next ();
 
-		if (tranzition_entries != NULL) {
+		if (tranzition_entries) {
 		    bool tmp_optional = false;
 		    got_tranzition = do_optimizeGrammar (switch_grammar_entry->grammar,
 							 tranzition_entries,
@@ -2907,7 +2625,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
 		    }
 		} else {
 		    DEBUG_OPT (
-			errf->print ("").print (switch_grammar_entry->grammar->toString ()).print (": ");
+			errs->print (switch_grammar_entry->grammar->toString (), ": ");
 		    )
 		    {
 			bool tmp_optional = false;
@@ -2920,15 +2638,14 @@ do_optimizeGrammar (Grammar                               * const grammar       
 			if (tmp_optional) {
 			  // Fully optional grammars should not be upwards-optimized.
 			  // We add 'any' token to force entering.
-//			    switch_grammar_entry->tranzition_entries.append (grab (new TranzitionEntry));
 			    switch_grammar_entry->any_tranzition = true;
 			}
 		    }
 		    DEBUG_OPT (
-			errf->print ("\n");
+			errs->print ("\n");
 		    )
 
-		    abortIf (*loop_id + 1 <= *loop_id);
+		    assert (*loop_id + 1 > *loop_id);
 		    (*loop_id) ++;
 		    do_optimizeGrammar (switch_grammar_entry->grammar,
 					NULL /* tranzition_entries */,
@@ -2939,7 +2656,7 @@ do_optimizeGrammar (Grammar                               * const grammar       
 		}
 	    }
 
-	    if (ret_optional != NULL)
+	    if (ret_optional)
 		*ret_optional = optional;
 
 	    return got_tranzition;
@@ -2956,16 +2673,15 @@ do_optimizeGrammar (Grammar                               * const grammar       
 				       loop_id);
 	} break;
 	default:
-	    abortIfReached ();
+            unreachable ();
     }
 
-    // Unreachable
-    abortIfReached ();
+    unreachable ();
     return false;
 }
 
 void
-optimizeGrammar (Grammar * const grammar /* non-null */)
+optimizeGrammar (Grammar * const mt_nonnull grammar)
 {
     Size loop_id = 1;
     do_optimizeGrammar (grammar,
@@ -2994,32 +2710,28 @@ optimizeGrammar (Grammar * const grammar /* non-null */)
 //     Ступени Compound задают строгую последовательность подграмматик.
 //     Ступени Switch предполагают возможность вхождения одной из нескольких подграмматик.
 //
-void
-parse (TokenStream    *token_stream,
-       LookupData     *lookup_data,
-       void           *user_data,
-       Grammar        *grammar,
-       ParserElement **ret_element,
-       ConstMemoryDesc const &default_variant,
+mt_throws Result
+parse (TokenStream    * const mt_nonnull token_stream,
+       LookupData     * const lookup_data,
+       void           * const user_data,
+       Grammar        * const mt_nonnull grammar,
+       ParserElement ** const ret_element,
+       ConstMemory      const default_variant,
        ParserConfig   *parser_config,
-       bool            debug_dump)
-    throw (ParsingException,
-	   IOException,
-	   InternalException)
+       bool             const debug_dump)
 {
-    abortIf (token_stream == NULL);
-    abortIf (grammar == NULL);
+    assert (token_stream && grammar);
 
     if (ret_element != NULL)
 	*ret_element = NULL;
 
-    Ref<ParserConfig> tmp_parser_config;
+    StRef<ParserConfig> tmp_parser_config;
     if (parser_config == NULL) {
 	tmp_parser_config = createDefaultParserConfig ();
 	parser_config = tmp_parser_config;
     }
 
-    Ref<ParsingState> parsing_state = grab (new ParsingState);
+    StRef<ParsingState> parsing_state = st_grab (new ParsingState);
     parsing_state->parser_config = parser_config;
     parsing_state->nest_level = 0;
     parsing_state->token_stream = token_stream;
@@ -3032,54 +2744,51 @@ parse (TokenStream    *token_stream,
 
     parsing_state->debug_dump = debug_dump;
 
-#if 0
-    {
-	Ref<ParsingStep_Sequence> step = grab (new ParsingStep_Sequence);
-	step->acceptor = grab (static_cast <Acceptor*> (new ListAcceptor<ParserElement> (out_list)));
-	step->optional = true;
-	step->grammar = grammar;
-	token_stream->getPosition (&step->token_stream_pos);
-	parsing_state->steps.append (step.ptr ());
-    }
-#endif
-
-//    Ref< RefAcceptor<ParserElement> > acceptor = grab (new RefAcceptor<ParserElement> (ret_element));
     VSlabRef< PtrAcceptor<ParserElement> > acceptor =
 	    VSlabRef< PtrAcceptor<ParserElement> >::forRef < PtrAcceptor<ParserElement> > (
 		    parsing_state->ptr_acceptor_slab.alloc ());
     acceptor->init (ret_element);
 
-    if (!parsing_state->lookup_data.isNull ())
+    if (parsing_state->lookup_data)
 	parsing_state->lookup_data->newCheckpoint ();
 
-    ParsingResult pres = parse_grammar (parsing_state, grammar, acceptor, false /* optional */);
+    ParsingResult pres;
+    if (!parse_grammar (parsing_state, grammar, acceptor, false /* optional */, &pres))
+        return Result::Failure;
+
     if (pres == ParseNonemptyMatch ||
-	pres == ParseEmptyMatch ||
+	pres == ParseEmptyMatch    ||
 	pres == ParseNoMatch)
     {
-	return;
+	return Result::Success;
     }
 
-    abortIf (pres != ParseUp);
+    assert (pres == ParseUp);
 
     while (!parsing_state->step_list.isEmpty()) {
 	switch (parsing_state->cur_direction) {
 	    case ParsingState::Up:
 		DEBUG_INT (
-		  errf->print ("Pargen.parse: ParsingState::Up").pendl ();
-		);
-		parse_up (parsing_state);
+		  errs->println (_func, "ParsingState::Up");
+		)
+		if (!parse_up (parsing_state))
+                    return Result::Failure;
+
 		break;
 	    case ParsingState::Down:
 		DEBUG_INT (
-		  errf->print ("Pargen.parse: ParsingState::Down").pendl ();
-		);
-		parse_down (parsing_state);
+		  errs->println (_func, "ParsingState::Down");
+		)
+		if (!parse_down (parsing_state))
+                    return Result::Failure;
+
 		break;
 	    default:
-		abortIfReached ();
+                unreachable ();
 	}
     }
+
+    return Result::Success;
 }
 
 }

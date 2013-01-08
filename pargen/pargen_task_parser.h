@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,33 +17,35 @@
 */
 
 
-#ifndef __PARGEN__PARGEN_TASK_PARSER_H__
-#define __PARGEN__PARGEN_TASK_PARSER_H__
+#ifndef PARGEN__PARGEN_TASK_PARSER__H__
+#define PARGEN__PARGEN_TASK_PARSER__H__
 
-#include <mycpp/mycpp.h>
 
-#include <mylang/token_stream.h>
+#include <libmary/libmary.h>
 
-#include <pargen/parsing_exception.h>
+#include <pargen/token_stream.h>
+
 #include <pargen/declarations.h>
+#include <pargen/parsing_exception.h>
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-class PargenTask : public SimplyReferenced
+class PargenTask : public StReferenced
 {
 public:
-    List< Ref<Declaration> > decls;
+    List< StRef<Declaration> > decls;
 };
 
-Ref<PargenTask> parsePargenTask (MyLang::TokenStream *token_stream)
-			  throw (Pargen::ParsingException,
-				 InternalException);
+mt_throws Result parsePargenTask (TokenStream       * mt_nonnull token_stream,
+                                  StRef<PargenTask> * mt_nonnull ret_pargen_task);
 
-void dumpDeclarations (PargenTask const *pargen_task);
+void dumpDeclarations (PargenTask const * mt_nonnull pargen_task);
 
 }
 
-#endif /* __PARGEN__PARGEN_TASK_PARSER_H__ */
+
+#endif /* PARGEN__PARGEN_TASK_PARSER__H__ */
 

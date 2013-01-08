@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,26 +17,20 @@
 */
 
 
-#ifndef __PARGEN__ACCEPTOR_H__
-#define __PARGEN__ACCEPTOR_H__
+#ifndef PARGEN__ACCEPTOR__H__
+#define PARGEN__ACCEPTOR__H__
 
-#include <typeinfo>
 
-#include <mycpp/object.h>
-#include <mycpp/util.h>
-#include <mycpp/io.h>
+#include <libmary/libmary.h>
 
 #include <pargen/parser_element.h>
 
 
-#define DEBUG(a) ;
-
-
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-class Acceptor : public virtual SimplyReferenced
+class Acceptor : public StReferenced
 {
 public:
     virtual void setParserElement (ParserElement *parser_element) = 0;
@@ -49,71 +43,31 @@ protected:
     List<T*> *target_list;
 
 public:
-    void setParserElement (ParserElement *parser_element)
+    void setParserElement (ParserElement * const parser_element)
     {
-	if (parser_element == NULL)
+	if (!parser_element)
 	    return;
 
-	abortIf (parser_element == NULL);
-//	abortIf (!T::testType (parser_element));
-//	abortIf (typeid (parser_element) != typeid (T));
-	abortIf (dynamic_cast <T*> (parser_element) == NULL);
+//	assert (dynamic_cast <T*> (parser_element));
 
-	if (target_list != NULL)
+	if (target_list)
 	    target_list->append (static_cast <T*> (parser_element));
     }
 
-    void init (List<T*> *target_list)
+    void init (List<T*> * const target_list)
     {
 	this->target_list = target_list;
     }
 
-    ListAcceptor (List<T*> *target_list)
+    ListAcceptor (List<T*> * const target_list)
+        : target_list (target_list)
     {
-	this->target_list = target_list;
     }
 
     ListAcceptor ()
     {
     }
 };
-#if 0
-template <class T>
-class ListAcceptor : public Acceptor
-{
-protected:
-    List< Ref<T> > *target_list;
-
-public:
-    void setParserElement (ParserElement *parser_element)
-    {
-	if (parser_element == NULL)
-	    return;
-
-	abortIf (parser_element == NULL);
-//	abortIf (!T::testType (parser_element));
-//	abortIf (typeid (parser_element) != typeid (T));
-	abortIf (dynamic_cast <T*> (parser_element) == NULL);
-
-	if (target_list != NULL)
-	    target_list->append (static_cast <T*> (parser_element));
-    }
-
-    void init (List< Ref<T> > *target_list)
-    {
-	this->target_list = target_list;
-    }
-
-    ListAcceptor (List< Ref<T> > *target_list)
-    {
-	this->target_list = target_list;
-    }
-
-    ListAcceptor ()
-    {
-    }
-};
-#endif
 
 template <class T>
 class PtrAcceptor : public Acceptor
@@ -124,22 +78,16 @@ protected:
 public:
     void setParserElement (ParserElement * const parser_element)
     {
-	DEBUG (
-	    errf->print ("PtrAcceptor.setParserElement: acceptor 0x").printHex ((Uint64) this).print ("', parser_element 0x").printHex ((Uint64) parser_element).pendl ();
-	)
-
-	if (parser_element == NULL) {
-	    if (target_ptr != NULL)
+	if (!parser_element) {
+	    if (target_ptr)
 		*target_ptr = NULL;
 
 	    return;
 	}
 
-	abortIf (parser_element == NULL);
-	abortIf (!T::testType (parser_element));
-	abortIf (target_ptr != NULL && (*target_ptr) != NULL);
+	assert (!target_ptr || !*target_ptr);
 
-	if (target_ptr != NULL)
+	if (target_ptr)
 	    *target_ptr = parser_element;
     }
 
@@ -147,15 +95,14 @@ public:
     {
 	this->target_ptr = target_ptr;
 
-	if (target_ptr != NULL)
+	if (target_ptr)
 	    *target_ptr = NULL;
     }
 
     PtrAcceptor (T ** const target_ptr)
+        : target_ptr (target_ptr)
     {
-	this->target_prt = target_ptr;
-
-	if (target_ptr != NULL)
+	if (target_ptr)
 	    *target_ptr = NULL;
     }
 
@@ -168,43 +115,36 @@ template <class T>
 class RefAcceptor : public Acceptor
 {
 protected:
-    Ref<T> *target_ref;
+    StRef<T> *target_ref;
 
 public:
-    void setParserElement (ParserElement *parser_element)
+    void setParserElement (ParserElement * const parser_element)
     {
-	DEBUG (
-	    errf->print ("RefAcceptor.setParserElement: acceptor 0x").printHex ((Uint64) this).print ("', parser_element 0x").printHex ((Uint64) parser_element).pendl ();
-	)
-
-	if (parser_element == NULL) {
-	    if (target_ref != NULL)
+	if (!parser_element) {
+	    if (target_ref)
 		*target_ref = NULL;
 
 	    return;
 	}
 
-	abortIf (parser_element == NULL);
-	abortIf (!T::testType (parser_element));
-	abortIf (target_ref != NULL && !target_ref->isNull ());
+        assert (!target_ref || !*target_ref);
 
-	if (target_ref != NULL)
+	if (target_ref)
 	    *target_ref = parser_element;
     }
 
-    void init (Ref<T> *target_ref)
+    void init (StRef<T> * const target_ref)
     {
 	this->target_ref = target_ref;
 
-	if (target_ref != NULL)
+	if (target_ref)
 	    *target_ref = NULL;
     }
 
-    RefAcceptor (Ref<T> *target_ref)
+    RefAcceptor (StRef<T> * const target_ref)
+        : target_ref (target_ref)
     {
-	this->target_ref = target_ref;
-
-	if (target_ref != NULL)
+	if (target_ref)
 	    *target_ref = NULL;
     }
 
@@ -216,8 +156,5 @@ public:
 }
 
 
-#undef DEBUG
-
-
-#endif /* __PARGEN__ACCEPTOR_H__ */
+#endif /* PARGEN__ACCEPTOR__H__ */
 

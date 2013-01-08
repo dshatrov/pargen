@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -19,14 +19,9 @@
 
 #include <cstdlib>
 
-#include <mycpp/mycpp.h>
-#include <mycpp/util.h>
-#include <mycpp/cmdline.h>
-#include <mycpp/io.h>
-#include <mycpp/file.h>
+#include <libmary/libmary.h>
 
-#include <mylang/file_token_stream.h>
-#include <mylang/util.h>
+#include <pargen/file_token_stream.h>
 
 #include <pargen/util.h>
 #include <pargen/pargen_task_parser.h>
@@ -40,34 +35,34 @@
 #define FUNC_NAME(a) a
 
 
-using namespace MyCpp;
-using namespace MyLang;
+using namespace M;
 using namespace Pargen;
 
+namespace {
 struct Options
 {
-    Ref<String> module_name;
-    Ref<String> namespace_name;
-    Ref<String> header_name;
+    StRef<String> module_name;
+    StRef<String> namespace_name;
+    StRef<String> header_name;
 
     Bool extmode;
 
     Bool help;
 };
+}
 
-Options options;
+static Options options;
 
 static void
 print_usage ()
 {
-    errf->print ("Usage: pargen [options] <file>\n"
-		 "Options:\n"
-		 "  --module-name\n"
-                 "  --namespace\n"
-		 "  --header-name\n"
-		 "  --extmode\n"
-		 "  -h, --help")
-	 .pendl ();
+    errs->println ("Usage: pargen [options] <file>\n"
+                   "Options:\n"
+                   "  --module-name\n"
+                   "  --namespace\n"
+                   "  --header-name\n"
+                   "  --extmode\n"
+                   "  -h, --help");
 }
 
 static bool
@@ -77,7 +72,7 @@ cmdline_module_name (const char * /* short_name */,
 		     void * /* opt_data */,
 		     void * /* callback_data */)
 {
-    options.module_name = String::forData (value);
+    options.module_name = st_grab (new (std::nothrow) String (value));
     return true;
 }
 
@@ -88,7 +83,7 @@ cmdline_namespace_name (const char * /* short_name */,
                         void       * /* opt_data */,
                         void       * /* callback_data */)
 {
-    options.namespace_name = String::forData (value);
+    options.namespace_name = st_grab (new (std::nothrow) String (value));
     return true;
 }
 
@@ -99,7 +94,7 @@ cmdline_header_name (const char * /* short_name */,
 		     void       * /* opt_data */,
 		     void       * /* callback_data */)
 {
-    options.header_name = String::forData (value);
+    options.header_name = st_grab (new (std::nothrow) String (value));
     return true;
 }
 
@@ -127,7 +122,7 @@ cmdline_extmode (const char * /* short_name */,
 
 int main (int argc, char **argv)
 {
-    myCppInit ();
+    libMaryInit ();
 
     {
 	const Size num_opts = 5;
@@ -180,97 +175,107 @@ int main (int argc, char **argv)
 	return EXIT_FAILURE;
     }
 
-    const char *input_filename = argv [1];
+    ConstMemory const input_filename (argv [1], strlen (argv [1]));
 
-    Ref<File> file;
-    Bool file_closed;
+    if (argc < 2) {
+        errs->println ("File not specified");
+        return EXIT_FAILURE;
+    }
 
-    Ref<File> header_file;
-    Bool header_file_closed;
+    if (!options.module_name) {
+        errs->println ("Module name not specified");
+        return EXIT_FAILURE;
+    }
 
-    Ref<File> source_file;
-    Bool source_file_closed;
+    if (!options.namespace_name)
+        options.namespace_name = options.module_name;
 
-    try {
-	if (argc < 2) {
-	    errf->print ("File not specified").pendl ();
-	    return EXIT_FAILURE;
-	}
+    if (!options.header_name) {
+        errs->println ("Header name not specified");
+        return EXIT_FAILURE;
+    }
 
-	if (options.module_name.isNull()) {
-	    errf->print ("Module name not specified").pendl ();
-	    return EXIT_FAILURE;
-	}
+    StRef<String> const header_filename = st_makeString (options.header_name, "_pargen.h");
+    StRef<String> const source_filename = st_makeString (options.header_name, "_pargen.cpp");
 
-        if (options.namespace_name.isNull())
-            options.namespace_name = options.module_name;
+    StRef<CompilationOptions> const comp_opts = st_grab (new (std::nothrow) CompilationOptions);
 
-	if (options.header_name.isNull()) {
-	    errf->print ("Header name not specified").pendl ();
-	    return EXIT_FAILURE;
-	}
+    comp_opts->module_name = options.module_name;
+    comp_opts->capital_module_name =
+            options.extmode ? comp_opts->module_name :
+                    capitalizeName (comp_opts->module_name->mem(),
+                                    false /* keep_underscore */);
+    comp_opts->all_caps_module_name = capitalizeNameAllCaps (comp_opts->module_name->mem());
 
-	Ref<String> header_filename = String::forPrintTask (Pt (options.header_name) ("_pargen.h"));
-	Ref<String> source_filename = String::forPrintTask (Pt (options.header_name) ("_pargen.cpp"));
+    comp_opts->capital_namespace_name =
+            options.extmode ? options.namespace_name :
+                    capitalizeName (options.namespace_name->mem(),
+                                    false /* keep_underscore */);
 
-	Ref<CompilationOptions> comp_opts = grab (new CompilationOptions);
+    comp_opts->header_name = options.header_name;
+    comp_opts->capital_header_name =
+            options.extmode ? comp_opts->module_name :
+                    capitalizeName (comp_opts->header_name->mem(),
+                                    false /* keep_underscore */);
+    comp_opts->all_caps_header_name = capitalizeNameAllCaps (comp_opts->header_name->mem());
 
-	comp_opts->module_name = options.module_name;
-	comp_opts->capital_module_name =
-		options.extmode ? comp_opts->module_name :
-			capitalizeName (comp_opts->module_name->getMemoryDesc (),
-					false /* keep_underscore */);
-	comp_opts->all_caps_module_name = capitalizeNameAllCaps (comp_opts->module_name->getMemoryDesc ());
+    NativeFile file;
+    if (!file.open (input_filename, 0 /* open_flags */, FileAccessMode::ReadOnly)) {
+        errs->println ("Could not open ", input_filename, ": ", exc->toString());
+        return EXIT_FAILURE;
+    }
 
-        comp_opts->capital_namespace_name =
-                options.extmode ? options.namespace_name :
-                        capitalizeName (options.namespace_name->getMemoryDesc(),
-                                        false /* keep_underscore */);
+    FileTokenStream file_token_stream (&file,
+                                       true /* report_newlines */,
+                                       true /* minus_is_alpha */);
 
-	comp_opts->header_name = options.header_name;
-	comp_opts->capital_header_name =
-		options.extmode ? comp_opts->module_name :
-			capitalizeName (comp_opts->header_name->getMemoryDesc (),
-					false /* keep_underscore */);
-	comp_opts->all_caps_header_name = capitalizeNameAllCaps (comp_opts->header_name->getMemoryDesc ());
+    StRef<PargenTask> pargen_task;
+    if (!parsePargenTask (&file_token_stream, &pargen_task)) {
+        errs->println ("Parsing error: ", exc->toString());
+        return EXIT_FAILURE;
+    }
 
-	file = File::createDefault (input_filename,
-				    0 /* open_flags */,
-				    AccessMode::ReadOnly);
-	Ref<FileTokenStream> const file_token_stream =
-                grab (new FileTokenStream (file,
-                                           true /* report_newlines */,
-                                           true /* minus_is_alpha */));
+    DEBUG_OLD (
+      dumpDeclarations (pargen_task);
+    )
 
-	Ref<PargenTask> pargen_task = parsePargenTask (file_token_stream);
-	DEBUG_OLD (
-	    dumpDeclarations (pargen_task);
-	)
+    file.close (true /* flush_data */);
 
-	file_closed = true;
-	file->close (true /* flush_data */);
-	file = NULL;
+    NativeFile header_file;
+    if (!header_file.open (header_filename->mem(),
+                           FileOpenFlags::Create | FileOpenFlags::Truncate,
+                           FileAccessMode::ReadWrite))
+    {
+        errs->println ("Could not open ", header_filename, ": ", exc->toString());
+        return EXIT_FAILURE;
+    }
 
-	header_file = File::createDefault (header_filename->getData (),
-					   OpenFlags::Create | OpenFlags::Truncate,
-					   AccessMode::ReadWrite);
-	compileHeader (header_file, pargen_task, comp_opts);
+    if (!compileHeader (&header_file, pargen_task, comp_opts)) {
+        errs->println ("Header file generation error: ", exc->toString());
+        return EXIT_FAILURE;
+    }
 
-	header_file_closed = true;
-	header_file->close (true /* flush_data */);
-	header_file = NULL;
+    header_file.close (true /* flush_data */);
 
-	source_file = File::createDefault (source_filename->getData (),
-					   OpenFlags::Create | OpenFlags::Truncate,
-					   AccessMode::ReadWrite);
-	compileSource (source_file, pargen_task, comp_opts);
+    NativeFile source_file;
+    if (!source_file.open (source_filename->mem(),
+                           FileOpenFlags::Create | FileOpenFlags::Truncate,
+                           FileAccessMode::ReadWrite))
+    {
+        errs->println ("Could not open ", source_filename, ": ", exc->toString());
+        return EXIT_FAILURE;
+    }
 
-	source_file_closed = true;
-	source_file->close (true /* flush_data */);
-	source_file = NULL;
+    if (!compileSource (&source_file, pargen_task, comp_opts)) {
+        errs->println ("Source file generation error: ", exc->toString());
+        return EXIT_FAILURE;
+    }
 
-	return 0;
+    source_file.close (true /* flush_data */);
 
+    return 0;
+
+#if 0
     } catch (ParsingException &exc) {
 	abortIf (exc.fpos.char_pos < exc.fpos.line_pos);
 	errf->print ("Parsing exception "
@@ -283,40 +288,7 @@ int main (int argc, char **argv)
 
 	errf->pendl ();
 	printException (errf, exc);
-    } catch (Exception &exc) {
-	printException (errf, exc);
     }
-
-    if (!file.isNull () &&
-	!file_closed)
-    {
-	try {
-	    file->close (true /* flush_data */);
-	} catch (Exception &exc) {
-	    printException (errf, exc);
-	}
-    }
-
-    if (!header_file.isNull () &&
-	!header_file_closed)
-    {
-	try {
-	    header_file->close (true /* flush_data */);
-	} catch (Exception &exc) {
-	    printException (errf, exc);
-	}
-    }
-
-    if (!source_file.isNull () &&
-	!source_file_closed)
-    {
-	try {
-	    source_file->close (true /* flush_data */);
-	} catch (Exception &exc) {
-	    printException (errf, exc);
-	}
-    }
-
-    return EXIT_FAILURE;
+#endif
 }
 

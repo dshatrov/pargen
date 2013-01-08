@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,11 +17,12 @@
 */
 
 
-#include <mycpp/io.h>
+#include <libmary/libmary.h>
 
 #include <pargen/grammar.h>
 
-using namespace MyCpp;
+
+using namespace M;
 
 namespace Pargen {
 
@@ -36,19 +37,19 @@ SwitchGrammarEntry::~SwitchGrammarEntry ()
     }
 }
 
-Ref<String>
+StRef<String>
 Grammar_Immediate_SingleToken::toString ()
 {
-    return String::forPrintTask (Pt ("[") (token) ("]"));
+    return st_makeString ("[", token, "]");
 }
 
-Ref<String>
+StRef<String>
 Grammar_Compound::toString ()
 {
     return name;
 }
 
-Ref<String>
+StRef<String>
 Grammar_Switch::toString ()
 {
     return name;

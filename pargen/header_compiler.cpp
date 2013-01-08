@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,41 +17,30 @@
 */
 
 
-#include <mycpp/util.h>
-#include <mycpp/io.h>
-
 #include <pargen/header_compiler.h>
 
 
-#define DEBUG(a) ;
-
-#define FUNC_NAME(a) :
-
-
-using namespace MyCpp;
+using namespace M;
 
 namespace Pargen {
 
-static void
-compileHeader_Phrase_External (File                                    * const file,
-			       Declaration_Phrases::PhraseRecord const * const phrase_record,
-			       CompilationOptions                const * const opts,
-			       ConstMemoryDesc                   const &declaration_name)
+static mt_throws Result
+compileHeader_Phrase_External (File                                    * const mt_nonnull file,
+			       Declaration_Phrases::PhraseRecord const * const mt_nonnull phrase_record,
+			       CompilationOptions                const * const mt_nonnull opts,
+			       ConstMemory                               const declaration_name)
 {
-    abortIf (file == NULL ||
-	     phrase_record == NULL ||
-	     opts == NULL);
+    assert (file && phrase_record && opts);
 
-    ConstMemoryDesc decl_name;
-    if (compareByteArrays (declaration_name, ConstMemoryDesc ("*", countStrLength ("*"))) == ComparisonEqual) {
-	decl_name = ConstMemoryDesc ("Grammar", countStrLength ("Grammar"));
-    } else {
+    ConstMemory decl_name;
+    if (equal (declaration_name, ConstMemory ("*")))
+	decl_name = ConstMemory ("Grammar");
+    else
 	decl_name = declaration_name;
-    }
 
-    List< Ref<PhrasePart> >::DataIterator phrase_part_iter (phrase_record->phrase->phrase_parts);
+    List< StRef<PhrasePart> >::DataIterator phrase_part_iter (phrase_record->phrase->phrase_parts);
     while (!phrase_part_iter.done ()) {
-	Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
+	StRef<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
 	switch (phrase_part->phrase_part_type) {
 	    case PhrasePart::t_Phrase: {
@@ -61,28 +50,36 @@ compileHeader_Phrase_External (File                                    * const f
 	      // No-op
 	    } break;
 	    case PhrasePart::t_AcceptCb: {
-		PhrasePart_AcceptCb *phrase_part__accept_cb =
-			static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr ());
+		PhrasePart_AcceptCb * const phrase_part__accept_cb =
+			static_cast <PhrasePart_AcceptCb*> (phrase_part.ptr());
+
 		if (phrase_part__accept_cb->repetition)
 		    continue;
 
-		file->out ("bool ").out (phrase_part__accept_cb->cb_name).out (" (\n"
-			   "        ").out (opts->capital_header_name).out ("_").out (decl_name).out (" *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data);\n"
-			   "\n");
+                if (!file->print ("bool ", phrase_part__accept_cb->cb_name, " (\n"
+                                  "        ", opts->capital_header_name, "_", decl_name, " *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data);\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    } break;
 	    case PhrasePart::t_UniversalAcceptCb: {
-		PhrasePart_UniversalAcceptCb *phrase_part__universal_accept_cb =
-			static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr ());
+		PhrasePart_UniversalAcceptCb * const phrase_part__universal_accept_cb =
+			static_cast <PhrasePart_UniversalAcceptCb*> (phrase_part.ptr());
+
 		if (phrase_part__universal_accept_cb->repetition)
 		    continue;
 
-		file->out ("bool ").out (phrase_part__universal_accept_cb->cb_name).out (" (\n"
-			   "        ").out (opts->capital_header_name).out ("Element *parser_element,\n"
-			   "        Pargen::ParserControl *parser_control,\n"
-			   "        void *data);\n"
-			   "\n");
+                if (!file->print ("bool ", phrase_part__universal_accept_cb->cb_name, " (\n"
+                                  "        ", opts->capital_header_name, "Element *parser_element,\n"
+                                  "        Pargen::ParserControl *parser_control,\n"
+                                  "        void *data);\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    } break;
 	    case PhrasePart::t_UpwardsAnchor: {
 	      // No-op
@@ -91,59 +88,67 @@ compileHeader_Phrase_External (File                                    * const f
 	      // No-op
 	    } break;
 	    default:
-		abortIfReached ();
+                unreachable ();
 	}
     }
+
+    return Result::Success;
 }
 
-static void
-compileHeader_Phrase (File                                    * const file,
-		      Declaration_Phrases::PhraseRecord const * const phrase_record,
-		      CompilationOptions                const * const opts,
-		      ConstMemoryDesc                   const & /* declaration_name */,
+static mt_throws Result
+compileHeader_Phrase (File                                    * const mt_nonnull file,
+		      Declaration_Phrases::PhraseRecord const * const mt_nonnull phrase_record,
+		      CompilationOptions                const * const mt_nonnull opts,
 		      bool                                      const initializers_mode = false)
-    throw (CompilationException,
-	   IOException,
-	   InternalException)
 {
-    abortIf (file == NULL ||
-	     phrase_record == NULL ||
-	     opts == NULL);
+    assert (file && phrase_record && opts);
 
-    List< Ref<PhrasePart> >::DataIterator phrase_part_iter (phrase_record->phrase->phrase_parts);
+    List< StRef<PhrasePart> >::DataIterator phrase_part_iter (phrase_record->phrase->phrase_parts);
     while (!phrase_part_iter.done ()) {
-	Ref<PhrasePart> &phrase_part = phrase_part_iter.next ();
+	StRef<PhrasePart> &phrase_part = phrase_part_iter.next ();
 
 	switch (phrase_part->phrase_part_type) {
 	    case PhrasePart::t_Phrase: {
-		PhrasePart_Phrase *phrase_part__phrase = static_cast <PhrasePart_Phrase*> (phrase_part.ptr ());
+		PhrasePart_Phrase * const phrase_part__phrase =
+                        static_cast <PhrasePart_Phrase*> (phrase_part.ptr());
 
 		if (phrase_part__phrase->seq) {
 		    if (!initializers_mode) {
-			file->out ("    MyCpp::List<").out (opts->capital_header_name).out ("_"
-					     ).out (phrase_part__phrase->decl_phrases->declaration_name).out ("*> "
-					     ).out (phrase_part__phrase->name).out ("s;\n");
+                        if (!file->print ("    M::List<", opts->capital_header_name, "_",
+                                          phrase_part__phrase->decl_phrases->declaration_name, "*> ",
+                                          phrase_part__phrase->name, "s;\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		} else {
 		    if (initializers_mode) {
-			file->out ("          , ").out (phrase_part__phrase->name).out (" (NULL)\n");
+			if (!file->print ("          , ", phrase_part__phrase->name, " (NULL)\n")) {
+                            return Result::Failure;
+                        }
 		    } else {
-			file->out ("    ").out (opts->capital_header_name).out ("_"
-					     ).out (phrase_part__phrase->decl_phrases->declaration_name).out (" *"
-					     ).out (phrase_part__phrase->name).out (";\n");
+			if (!file->print ("    ", opts->capital_header_name, "_",
+                                          phrase_part__phrase->decl_phrases->declaration_name, " *",
+                                          phrase_part__phrase->name, ";\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		}
 	    } break;
 	    case PhrasePart::t_Token: {
-		PhrasePart_Token *phrase_part__token = static_cast <PhrasePart_Token*> (phrase_part.ptr ());
+		PhrasePart_Token * const phrase_part__token =
+                        static_cast <PhrasePart_Token*> (phrase_part.ptr());
 
-		if (phrase_part__token->token.isNull () ||
-		    phrase_part__token->token->getLength () == 0)
+		if (!phrase_part__token->token ||
+		    phrase_part__token->token->len() == 0)
 		{
 		    if (initializers_mode) {
-			file->out ("          , any_token (NULL)\n");
+                        if (!file->print ("          , any_token (NULL)\n"))
+                            return Result::Failure;
 		    } else {
-			file->out ("    Pargen::ParserElement_Token *any_token;\n");
+                        if (!file->print ("    Pargen::ParserElement_Token *any_token;\n"))
+                            return Result::Failure;
 		    }
 		}
 	    } break;
@@ -160,272 +165,317 @@ compileHeader_Phrase (File                                    * const file,
 	      // No-op
 	    } break;
 	    default:
-		abortIfReached ();
+                unreachable ();
 	}
     }
+
+    return Result::Success;
 }
 
-void
-compileHeader (File *file,
-	       PargenTask const *pargen_task,
-	       CompilationOptions const *opts)
-    throw (CompilationException,
-	   IOException,
-	   InternalException)
+#warning handle return value
+mt_throws Result
+compileHeader (File                     * const mt_nonnull file,
+	       PargenTask         const * const mt_nonnull pargen_task,
+	       CompilationOptions const * const mt_nonnull opts)
 {
-    abortIf (file == NULL ||
-	     pargen_task == NULL ||
-	     opts == NULL);
+    assert (file && pargen_task && opts);
 
-    file->out ("#ifndef __").out (opts->all_caps_module_name).out ("__").out (opts->all_caps_header_name).out ("_PARGEN_H__\n"
-	       "#define __").out (opts->all_caps_module_name).out ("__").out (opts->all_caps_header_name).out ("_PARGEN_H__\n"
-	       "\n"
-	       "#include <mycpp/string.h>\n"
-	       "\n"
-	       "#include <pargen/parser_element.h>\n"
-	       "#include <pargen/grammar.h>\n"
-	       "\n"
-	       "namespace ").out (opts->capital_namespace_name).out (" {\n"
-	       "\n"
-	       "class ").out (opts->capital_header_name).out ("Element : public Pargen::ParserElement\n"
-	       "{\n"
-	       "public:\n"
-	       "    enum Type {");
-
-#if 0
-// This collides MyCpp and LibMary.
-	       "using namespace MyCpp;\n"
-	       "\n"
-#endif
+    if (!file->print ("#ifndef __", opts->all_caps_module_name, "__", opts->all_caps_header_name, "_PARGEN__H__\n"
+                      "#define __", opts->all_caps_module_name, "__", opts->all_caps_header_name, "_PARGEN__H__\n"
+                      "\n"
+                      "\n"
+                      "#include <libmary/libmary.h>\n"
+                      "\n"
+                      "#include <pargen/parser_element.h>\n"
+                      "#include <pargen/grammar.h>\n"
+                      "\n"
+                      "\n"
+                      "namespace ", opts->capital_namespace_name, " {\n"
+                      "\n"
+                      "class ", opts->capital_header_name, "Element : public Pargen::ParserElement\n"
+                      "{\n"
+                      "public:\n"
+                      "    enum Type {"))
+    {
+        return Result::Failure;
+    }
 
     Bool got_global_grammar;
     {
-	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
+	List< StRef<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	Bool decl_iter_started;
 	while (!decl_iter.done ()) {
-	    Ref<Declaration> &_decl = decl_iter.next ();
+	    StRef<Declaration> &_decl = decl_iter.next ();
 	    if (_decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
-	    Declaration_Phrases const * const decl = static_cast <Declaration_Phrases const *> (_decl.ptr ());
+	    Declaration_Phrases const * const decl =
+                    static_cast <Declaration_Phrases const *> (_decl.ptr());
 
 	    if (decl->is_alias)
 		continue;
 
-	    if (decl_iter_started)
-		file->out (",\n");
-	    else {
+	    if (decl_iter_started) {
+                if (!file->print (",\n"))
+                    return Result::Failure;
+            } else {
 		decl_iter_started = true;
-		file->out ("\n");
+                if (!file->print ("\n"))
+                    return Result::Failure;
 	    }
 
-	    if (compareStrings (decl->declaration_name->getData (), "*")) {
+	    if (equal (decl->declaration_name->mem(), "*")) {
 		got_global_grammar = true;
-		file->out ("        t_Grammar");
-	    } else
-		file->out ("        t_").out (decl->declaration_name);
+                if (!file->print ("        t_Grammar"))
+                    return Result::Failure;
+	    } else {
+                if (!file->print ("        t_", decl->declaration_name))
+                    return Result::Failure;
+            }
 	}
     }
 
-    file->out ("\n"
-	       "    };\n"
-	       "\n"
-	       "    const Type ").out (opts->header_name).out ("_element_type;\n"
-	       "\n"
-	       "    ").out (opts->capital_header_name).out ("Element (Type type)\n"
-	       "        : ").out (opts->header_name).out ("_element_type (type)\n"
-	       "    {\n"
-	       "    }\n"
-	       "};\n"
-	       "\n");
+    if (!file->print ("\n"
+                      "    };\n"
+                      "\n"
+                      "    const Type ", opts->header_name, "_element_type;\n"
+                      "\n"
+                      "    ", opts->capital_header_name, "Element (Type type)\n"
+                      "        : ", opts->header_name, "_element_type (type)\n"
+                      "    {\n"
+                      "    }\n"
+                      "};\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
     {
-	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
+	List< StRef<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	while (!decl_iter.done ()) {
-	    Ref<Declaration> &_decl = decl_iter.next ();
+	    StRef<Declaration> &_decl = decl_iter.next ();
 	    if (_decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
-	    Declaration_Phrases const * const decl = static_cast <Declaration_Phrases const *> (_decl.ptr ()); 
+	    Declaration_Phrases const * const decl =
+                    static_cast <Declaration_Phrases const *> (_decl.ptr()); 
 
 	    if (decl->is_alias)
 		continue;
 
-	    if (compareStrings (decl->declaration_name->getData (), "*"))
+	    if (equal (decl->declaration_name->mem(), "*"))
 		continue;
 
-	    file->out ("class ").out (opts->capital_header_name).out ("_").out (decl->declaration_name).out (";\n");
+            if (!file->print ("class ", opts->capital_header_name, "_", decl->declaration_name, ";\n"))
+                return Result::Failure;
 	}
-	file->out ("\n");
+        if (!file->print ("\n"))
+            return Result::Failure;
     }
 
     {
-	List< Ref<Declaration> >::DataIterator decl_iter (pargen_task->decls);
+	List< StRef<Declaration> >::DataIterator decl_iter (pargen_task->decls);
 	while (!decl_iter.done ()) {
-	    Ref<Declaration> &decl = decl_iter.next ();
+	    StRef<Declaration> &decl = decl_iter.next ();
 	    if (decl->declaration_type != Declaration::t_Phrases)
 		continue;
 
-	    Declaration_Phrases const * const &decl_phrases = static_cast <Declaration_Phrases const *> (decl.ptr ());
+	    Declaration_Phrases const * const &decl_phrases =
+                    static_cast <Declaration_Phrases const *> (decl.ptr());
 
 	    if (decl_phrases->is_alias)
 		continue;
 
-	    const char *decl_name;
-	    const char *lowercase_decl_name;
-	    if (compareStrings (decl->declaration_name->getData (), "*")) {
-		decl_name = "Grammar";
-		lowercase_decl_name = "grammar";
+	    ConstMemory decl_name;
+	    ConstMemory lowercase_decl_name;
+	    if (equal (decl->declaration_name->mem(), "*")) {
+		decl_name = ConstMemory ("Grammar");
+		lowercase_decl_name = ConstMemory ("grammar");
 	    } else {
-		decl_name = decl->declaration_name->getData ();
-		lowercase_decl_name = decl->lowercase_declaration_name->getData ();
+		decl_name = decl->declaration_name->mem();
+		lowercase_decl_name = decl->lowercase_declaration_name->mem();
 	    }
 
-	    compileHeader_Phrase_External (file, decl_phrases->phrases.first->data, opts, ConstMemoryDesc (decl_name, countStrLength (decl_name)));
+            if (!compileHeader_Phrase_External (file,
+                                                decl_phrases->phrases.first->data,
+                                                opts,
+                                                decl_name))
+            {
+                return Result::Failure;
+            }
 
-	    file->out ("class ").out (opts->capital_header_name).out ("_").out (decl_name).out (" : "
-			       "public ").out (opts->capital_header_name).out ("Element\n"
-		       "{\n"
-		       "public:\n");
+            if (!file->print ("class ", opts->capital_header_name, "_", decl_name, " : "
+                                      "public ", opts->capital_header_name, "Element\n"
+                              "{\n"
+                              "public:\n"))
+            {
+                return Result::Failure;
+            }
 
-	    DEBUG (
-		errf->print ("Pargen.compileHeader: "
-			     "decl->declaration_name: ").print (decl->declaration_name).print (", "
-			     "decl_phrases->phrases.getNumElements(): ").print (decl_phrases->phrases.getNumElements ()).pendl ();
-	    )
 	    if (decl_phrases->phrases.getNumElements () > 1) {
-		file->out ("    enum Type {");
+		if (!file->print ("    enum Type {"))
+                    return Result::Failure;
 
 		{
 		    Size phrase_index = 0;
-		    List< Ref<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
+		    List< StRef<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
 		    Bool phrase_iter_started;
 		    while (!phrase_iter.done ()) {
-			Ref<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
-			Phrase *phrase = phrase_record->phrase;
+			StRef<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
+			Phrase * const phrase = phrase_record->phrase;
 
-			if (phrase_iter_started)
-			    file->out (",\n");
-			else {
+			if (phrase_iter_started) {
+			    if (!file->print (",\n"))
+                                return Result::Failure;
+                        } else {
 			    phrase_iter_started = true;
-			    file->out ("\n");
+			    if (!file->print ("\n"))
+                                return Result::Failure;
 			}
 
-			Ref<String> phrase_name;
-			if (phrase->phrase_name.isNull ())
-			    phrase_name = String::forPrintTask (Pt ("phrase") (phrase_index));
+			StRef<String> phrase_name;
+			if (!phrase->phrase_name)
+			    phrase_name = st_makeString ("phrase", phrase_index);
 			else
 			    phrase_name = phrase->phrase_name;
 
-			file->out ("        t_").out (phrase_name);
+                        if (!file->print ("        t_", phrase_name))
+                            return Result::Failure;
 		    }
 		}
 
-		file->out ("\n"
-			   "    };\n"
-			   "\n"
-			   "    const Type ").out (lowercase_decl_name).out ("_type;\n"
-			   "\n"
-			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" (Type type)\n"
-			   "        : ").out (opts->capital_header_name).out ("Element ("
-					       ).out (opts->capital_header_name).out ("Element::t_").out (decl_name).out ("),\n"
-			   "          ").out (lowercase_decl_name).out ("_type (type)\n"
-			   "    {\n"
-			   "    }\n"
-			   "};\n"
-			   "\n");
+                if (!file->print ("\n"
+                                  "    };\n"
+                                  "\n"
+                                  "    const Type ", lowercase_decl_name, "_type;\n"
+                                  "\n"
+                                  "    ", opts->capital_header_name, "_", decl_name, " (Type type)\n"
+                                  "        : ", opts->capital_header_name, "Element (",
+                                                      opts->capital_header_name, "Element::t_", decl_name, "),\n"
+                                  "          ", lowercase_decl_name, "_type (type)\n"
+                                  "    {\n"
+                                  "    }\n"
+                                  "};\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 
 		{
-		    List< Ref<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
+		    List< StRef<Declaration_Phrases::PhraseRecord> >::DataIterator phrase_iter (decl_phrases->phrases);
 		    Size phrase_index = 0;
 		    while (!phrase_iter.done ()) {
-			Ref<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
-			Phrase *phrase = phrase_record->phrase;
+			StRef<Declaration_Phrases::PhraseRecord> &phrase_record = phrase_iter.next ();
+			Phrase * const phrase = phrase_record->phrase;
 
-			Ref<String> phrase_name;
-			if (phrase->phrase_name.isNull ()) {
-			    phrase_name = String::forPrintTask (Pt ("phrase") (phrase_index));
+			StRef<String> phrase_name;
+			if (!phrase->phrase_name) {
+			    phrase_name = st_makeString ("phrase", phrase_index);
 			    phrase_index ++;
-			} else
+			} else {
 			    phrase_name = phrase->phrase_name;
+                        }
 
-			compileHeader_Phrase_External (file, phrase_record, opts, ConstMemoryDesc (decl_name, countStrLength (decl_name)));
+			if (!compileHeader_Phrase_External (file, phrase_record, opts, decl_name))
+                            return Result::Failure;
 
-			file->out ("class ").out (opts->capital_header_name).out ("_").out (decl_name).out ("_"
-					   ).out (phrase_name).out (" : "
-					   "public ").out (opts->capital_header_name).out ("_").out (decl_name).out ("\n"
-				   "{\n"
-				   "public:\n");
+                        if (!file->print ("class ", opts->capital_header_name, "_", decl_name, "_",
+                                                  phrase_name, " : "
+                                                  "public ", opts->capital_header_name, "_", decl_name, "\n"
+                                          "{\n"
+                                          "public:\n"))
+                        {
+                            return Result::Failure;
+                        }
 
-			compileHeader_Phrase (file,
-					      phrase_record,
-					      opts,
-					      ConstMemoryDesc (decl_name, countStrLength (decl_name)));
+                        if (!compileHeader_Phrase (file, phrase_record, opts))
+                            return Result::Failure;
 
-			file->out ("\n"
-				   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out ("_").out (phrase_name).out (" ()\n"
-				   "        : ").out (opts->capital_header_name).out ("_").out (decl_name).out (" ("
-						    ).out (opts->capital_header_name).out ("_").out (decl_name).out ("::"
-							    "t_").out (phrase_name).out (")\n");
+                        if (!file->print ("\n"
+                                          "    ", opts->capital_header_name, "_", decl_name, "_", phrase_name, " ()\n"
+                                          "        : ", opts->capital_header_name, "_", decl_name, " (",
+                                                           opts->capital_header_name, "_", decl_name, "::"
+                                                               "t_", phrase_name, ")\n"))
+                        {
+                            return Result::Failure;
+                        }
 
-			compileHeader_Phrase (file,
-					      phrase_record,
-					      opts,
-					      ConstMemoryDesc (decl_name, countStrLength (decl_name)),
-					      true /* initializers_mode */);
+			if (!compileHeader_Phrase (file, phrase_record, opts, true /* initializers_mode */))
+                            return Result::Failure;
 
-			file->out ("    {\n"
-				   "    }\n"
-				   "};\n"
-				   "\n");
+                        if (!file->print ("    {\n"
+                                          "    }\n"
+                                          "};\n"
+                                          "\n"))
+                        {
+                            return Result::Failure;
+                        }
 		    }
 		}
 	    } else {
-		if (decl_phrases->phrases.first != NULL)
-		    compileHeader_Phrase (file,
-					  decl_phrases->phrases.first->data,
-					  opts,
-					  ConstMemoryDesc (decl_name, countStrLength (decl_name)));
+		if (decl_phrases->phrases.first != NULL) {
+                    if (!compileHeader_Phrase (file, decl_phrases->phrases.first->data, opts))
+                        return Result::Failure;
+                }
 
-		file->out ("\n"
-			   "    ").out (opts->capital_header_name).out ("_").out (decl_name).out (" ()\n"
-			   "        : ").out (opts->capital_header_name).out ("Element ("
-					    ).out (opts->capital_header_name).out ("Element::t_").out (decl_name).out (")\n");
+                if (!file->print ("\n"
+                                  "    ", opts->capital_header_name, "_", decl_name, " ()\n"
+                                  "        : ", opts->capital_header_name, "Element (",
+                                                   opts->capital_header_name, "Element::t_", decl_name, ")\n"))
+                {
+                    return Result::Failure;
+                }
 
-		if (decl_phrases->phrases.first != NULL)
-		    compileHeader_Phrase (file,
-					  decl_phrases->phrases.first->data,
-					  opts,
-					  ConstMemoryDesc (decl_name, countStrLength (decl_name)),
-					  true /* initializers_mode */);
+		if (decl_phrases->phrases.first != NULL) {
+                    if (!compileHeader_Phrase (file,
+                                               decl_phrases->phrases.first->data,
+                                               opts,
+                                               true /* initializers_mode */))
+                    {
+                        return Result::Failure;
+                    }
+                }
 
-		file->out ("    {\n"
-			   "    }\n"
-			   "};\n"
-			   "\n");
+                if (!file->print ("    {\n"
+                                  "    }\n"
+                                  "};\n"
+                                  "\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 
-	    if (!compareStrings (decl->declaration_name->getData (), "*")) {
-		file->out ("void dump_").out (opts->header_name).out ("_").out (decl->declaration_name).out (" ("
-				   ).out (opts->capital_header_name).out ("_").out (decl->declaration_name).out (" const *, "
-				   "MyCpp::Size nest_level = 0);\n\n");
+	    if (!equal (decl->declaration_name->mem(), "*")) {
+		if (!file->print ("void dump_", opts->header_name, "_", decl->declaration_name, " (",
+                                          opts->capital_header_name, "_", decl->declaration_name, " const *, "
+                                          "M::Size nest_level = 0);\n\n"))
+                {
+                    return Result::Failure;
+                }
 	    }
 	}
     }
 
     if (got_global_grammar) {
-	file->out ("MyCpp::Ref<Pargen::Grammar> create_").out (opts->header_name).out ("_grammar ();\n"
-		   "\n"
-		   "void dump_").out (opts->header_name).out ("_grammar (").out (opts->capital_header_name).out ("_Grammar const *el);\n"
-		   "\n");
+        if (!file->print ("M::StRef<Pargen::Grammar> create_", opts->header_name, "_grammar ();\n"
+                          "\n"
+                          "void dump_", opts->header_name, "_grammar (", opts->capital_header_name, "_Grammar const *el);\n"
+                          "\n"))
+        {
+            return Result::Failure;
+        }
     }
 
-    file->out ("}\n"
-	       "\n");
+    if (!file->print ("}\n"
+                      "\n"
+                      "\n"
+                      "#endif /* __", opts->all_caps_module_name, "__", opts->all_caps_header_name, "_PARGEN__H__ */\n"
+                      "\n"))
+    {
+        return Result::Failure;
+    }
 
-    file->out ("#endif /* __").out (opts->all_caps_module_name).out ("__").out (opts->all_caps_header_name).out ("_PARGEN_H__ */\n"
-	       "\n");
-
+    return Result::Success;
 }
 
 }

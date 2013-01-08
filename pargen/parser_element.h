@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,25 +17,27 @@
 */
 
 
-#ifndef __PARGEN__PARSER_ELEMENT_H__
-#define __PARGEN__PARSER_ELEMENT_H__
+#ifndef PARGEN__PARSER_ELEMENT__H__
+#define PARGEN__PARSER_ELEMENT__H__
 
-#include <mycpp/object.h>
+
+#include <libmary/libmary.h>
+
+
+#define VSLAB_ACCEPTOR
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-class ParserElement // Deprecated : public virtual SimplyReferenced
+class ParserElement
+#ifndef VSLAB_ACCEPTOR
+    : public StReferenced
+#endif
 {
 public:
     void *user_obj;
-
-    // TODO This seems to be unused
-    static bool testType (ParserElement * /* parser_element */)
-    {
-	return true;
-    }
 
     ParserElement ()
 	: user_obj (NULL)
@@ -43,14 +45,14 @@ public:
     }
 };
 
-class ParserElement_Token : public ParserElement,
-			    public virtual SimplyReferenced
+class ParserElement_Token : public ParserElement //,
+//			    public virtual SimplyReferenced
 {
 public:
-    ConstMemoryDesc token;
+    ConstMemory token;
 
-    ParserElement_Token (ConstMemoryDesc const &token,
-			 void *user_obj)
+    ParserElement_Token (ConstMemory   const token,
+			 void        * const user_obj)
 	: token (token)
     {
 	this->user_obj = user_obj;
@@ -59,5 +61,6 @@ public:
 
 }
 
-#endif /* __PARGEN__PARSER_ELEMENT_H__ */
+
+#endif /* PARGEN__PARSER_ELEMENT__H__ */
 

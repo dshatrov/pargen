@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,16 +17,18 @@
 */
 
 
-#ifndef __PARGEN__LOOKUP_DATA_H__
-#define __PARGEN__LOOKUP_DATA_H__
+#ifndef PARGEN__LOOKUP_DATA__H__
+#define PARGEN__LOOKUP_DATA__H__
 
-#include <mycpp/object.h>
+
+#include <libmary/libmary.h>
+
 
 namespace Pargen {
 
-using namespace MyCpp;
+using namespace M;
 
-class LookupData : public virtual SimplyReferenced
+class LookupData : public StReferenced
 {
 public:
     virtual void newCheckpoint () = 0;
@@ -38,5 +40,6 @@ public:
 
 }
 
-#endif /* __PARGEN__LOOKUP_DATA_H__ */
+
+#endif /* PARGEN__LOOKUP_DATA__H__ */
 

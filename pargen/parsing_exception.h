@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,32 +17,46 @@
 */
 
 
-#ifndef __PARGEN__PARSING_EXCEPTION_H__
-#define __PARGEN__PARSING_EXCEPTION_H__
+#ifndef PARGEN__PARSING_EXCEPTION__H__
+#define PARGEN__PARSING_EXCEPTION__H__
 
-#include <mycpp/internal_exception.h>
 
-#include <mylang/file_position.h>
+#include <libmary/libmary.h>
+
+#include <pargen/file_position.h>
+
 
 namespace Pargen {
 
+using namespace M;
+
 /*c*/
-class ParsingException : public MyCpp::InternalException,
-			 public MyCpp::ExceptionBase <ParsingException>
+class ParsingException : public Exception
 {
 public:
-    const MyLang::FilePosition fpos;
+    FilePosition const fpos;
+    StRef<String> message;
 
-    ParsingException (MyLang::FilePosition const &fpos,
-		      MyCpp::String      *message = MyCpp::String::nullString (),
-		      MyCpp::Exception   *cause = NULL)
-	: InternalException (message, cause),
-	  fpos (fpos)
+    Ref<String> toString ()
     {
+        if (cause)
+            return makeString ("ParsingException: ", message->mem(), ": ", cause->toString()->mem());
+        else
+            return makeString ("ParsingException: ", message->mem());
+    }
+
+    ParsingException (FilePosition const &fpos,
+		      String * const message)
+        : fpos (fpos),
+          message (message)
+    {
+        if (!this->message)
+            this->message = st_grab (new (std::nothrow) String);
     }
 };
 
 }
 
-#endif /* __PARGEN__PARSING_EXCEPTION_H__ */
+
+#endif /* PARGEN__PARSING_EXCEPTION__H__ */
 

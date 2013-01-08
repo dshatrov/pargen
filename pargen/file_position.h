@@ -1,5 +1,5 @@
 /*  Pargen - Flexible parser generator
-    Copyright (C) 2011 Dmitry Shatrov
+    Copyright (C) 2011-2013 Dmitry Shatrov
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,26 +17,46 @@
 */
 
 
-#ifndef __PARGEN__COMPILATION_EXCEPTION_H__
-#define __PARGEN__COMPILATION_EXCEPTION_H__
+#ifndef PARGEN__FILE_POSITION__H__
+#define PARGEN__FILE_POSITION__H__
 
-#include <mycpp/string.h>
-#include <mycpp/exception.h>
+
+#include <libmary/libmary.h>
+
 
 namespace Pargen {
 
-class CompilationException : public Exception,
-			     public ExceptionBase <CompilationException>
+using namespace M;
+
+class FilePosition
 {
 public:
-    CompilationException (String    *message = String::nullString (),
-			  Exception *cause = NULL)
-	: Exception (message, cause)
+	   // Current line number
+    Uint64 line,
+	   // Absolute position of the beginning of the current line
+	   line_pos,
+	   // Absoulute position of the current character
+	   char_pos;
+
+    FilePosition (Uint64 line,
+		  Uint64 line_pos,
+		  Uint64 char_pos)
+	: line (line),
+	  line_pos (line_pos),
+	  char_pos (char_pos)
+    {
+    }
+
+    FilePosition ()
+	: line (0),
+	  line_pos (0),
+	  char_pos (0)
     {
     }
 };
 
 }
 
-#endif /* __PARGEN__COMPILATION_EXCEPTION_H__ */
+
+#endif /* PARGEN__FILE_POSITION__H__ */
 

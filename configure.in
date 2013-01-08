@@ -1,6 +1,6 @@
-AC_INIT([pargen], [0.1])
+AC_INIT([pargen], [1.0])
 
-PKG_CHECK_MODULES(THIS, [mycpp-1.0, mylang-1.0, libmary-1.0])
+PKG_CHECK_MODULES(THIS, [libmary-1.0])
 AC_SUBST(THIS_CFLAGS)
 AC_SUBST(THIS_LIBS)
 
