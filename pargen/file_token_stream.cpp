@@ -28,8 +28,6 @@
 // Internal
 #define DEBUG_INT(a) ;
 
-#define MYLANG__MAX_TOKEN_LENGTH 1024
-
 
 using namespace M;
 
@@ -235,6 +233,7 @@ FileTokenStream::setPosition (PositionMarker const * const mt_nonnull pmark)
 
     cur_line = pmark->body.cur_line;
     cur_line_start = pmark->body.cur_line_start;
+    cur_char_pos = pmark->body.offset;
 
 //	file->seekSet (pmark->body.offset);
     if (!file->seek (pmark->body.offset, SeekOrigin::Beg))

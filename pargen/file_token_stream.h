@@ -17,8 +17,8 @@
 */
 
 
-#ifndef __PARGEN__FILE_TOKEN_STREAM__H__
-#define __PARGEN__FILE_TOKEN_STREAM__H__
+#ifndef PARGEN__FILE_TOKEN_STREAM__H__
+#define PARGEN__FILE_TOKEN_STREAM__H__
 
 
 #include <libmary/libmary.h>
@@ -78,5 +78,5 @@ public:
 }
 
 
-#endif /* __PARGEN__FILE_TOKEN_STREAM__H__ */
+#endif /* PARGEN__FILE_TOKEN_STREAM__H__ */
 
