@@ -20,6 +20,7 @@ pargen_target_headers =		\
         file_position.h         \
         token_stream.h          \
         file_token_stream.h     \
+        memory_token_stream.h   \
 	parser_element.h	\
 	acceptor.h		\
 	grammar.h		\
@@ -43,6 +44,7 @@ pargen_LDADD = $(top_builddir)/pargen/libpargen-1.0.la	\
 lib_LTLIBRARIES = libpargen-1.0.la
 libpargen_1_0_la_SOURCES =      \
         file_token_stream.cpp   \
+        memory_token_stream.cpp \
 	grammar.cpp             \
 	parser.cpp
 libpargen_1_0_la_LDFLAGS = -no-undefined -version-info "0:0:0"
