@@ -20,6 +20,9 @@
 #include <pargen/memory_token_stream.h>
 
 
+#define DEBUG(a)
+
+
 using namespace M;
 
 namespace Pargen {
@@ -37,7 +40,9 @@ static inline bool is_newline (unsigned char c)
 mt_throws Result
 MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
 {
-    logD_ (_func_);
+    DEBUG (
+      logD_ (_func_);
+    )
 
     if (!ret_mem)
         return Result::Success;
@@ -62,7 +67,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
             } while (pos < len && is_whitespace (buf [pos]));
 
             if (newline && report_newlines) {
-                logD_ (_func, "reporting newline");
+                DEBUG (
+                  logD_ (_func, "reporting newline");
+                )
                 *ret_mem = newline_replacement;
                 cur_pos = pos;
                 return Result::Success;
@@ -75,7 +82,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
         if (c == '/' && pos + 1 < pos_end) {
             if (buf [pos + 1] == '/') {
               // Single-line comment
-                logD_ (_func, "single-line comment");
+                DEBUG (
+                  logD_ (_func, "single-line comment");
+                )
                 pos += 2;
                 for (; pos < pos_end; ++pos) {
                     if (is_newline (buf [pos])) {
@@ -88,7 +97,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
             } else
             if (buf [pos + 1] == '*') {
               // Multiline comment
-                logD_ (_func, "multi-line comment");
+                DEBUG (
+                  logD_ (_func, "multi-line comment");
+                )
                 pos += 2;
                 for (; pos < pos_end; ++pos) {
                     if (is_newline (buf [pos])) {
@@ -108,7 +119,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
         }
 
         if (c == '"') {
-            logD_ (_func, "string literal begin");
+            DEBUG (
+              logD_ (_func, "string literal begin");
+            )
 
             ++pos;
             bool escaped = false;
@@ -147,7 +160,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
                     else
                         *ret_mem = ConstMemory (buf + cur_pos + 1, pos - cur_pos - 1);
 
-                    logD_ (_func, "string literal end: ", *ret_mem);
+                    DEBUG (
+                      logD_ (_func, "string literal end: ", *ret_mem);
+                    )
 
                     cur_pos = pos + 1;
                     return Result::Success;
@@ -160,7 +175,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
             }
         } else
         if (c >= '0' && c <= '9') {
-            logD_ (_func, "numeric literal begin");
+            DEBUG (
+              logD_ (_func, "numeric literal begin");
+            )
             ++pos;
             for (; pos < pos_end; ++pos) {
                 unsigned char const c = buf [pos];
@@ -170,7 +187,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
                       c == '.'))
                 {
                     *ret_mem = ConstMemory (buf + cur_pos, pos - cur_pos);
-                    logD_ (_func, "numeric literal end: ", *ret_mem);
+                    DEBUG (
+                      logD_ (_func, "numeric literal end: ", *ret_mem);
+                    )
                     cur_pos = pos;
                     return Result::Success;
                 }
@@ -181,7 +200,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
             c == '_' ||
             (minus_is_alpha && c == '-'))
         {
-            logD_ (_func, "literal begin");
+            DEBUG (
+              logD_ (_func, "literal begin");
+            )
             ++pos;
             for (; pos < pos_end; ++pos) {
                 c = buf [pos];
@@ -192,7 +213,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
                       (minus_is_alpha && c == '-')))
                 {
                     *ret_mem = ConstMemory (buf + cur_pos, pos - cur_pos);
-                    logD_ (_func, "literal end: ", *ret_mem);
+                    DEBUG (
+                      logD_ (_func, "literal end: ", *ret_mem);
+                    )
                     cur_pos = pos;
                     return Result::Success;
                 }
@@ -200,7 +223,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
         } else {
           // Single-char token
             *ret_mem = ConstMemory (buf + pos, 1);
-            logD_ (_func, "single-char token: '", *ret_mem, "'");
+            DEBUG (
+              logD_ (_func, "single-char token: '", *ret_mem, "'");
+            )
             ++pos;
             cur_pos = pos;
             return Result::Success;
@@ -209,7 +234,9 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
         ++pos;
     }
 
-    logD_ (_func, "remainder: ", *ret_mem);
+    DEBUG (
+      logD_ (_func, "remainder: ", *ret_mem);
+    )
     *ret_mem = ConstMemory (buf + cur_pos, pos - cur_pos);
     cur_pos = len;
     return Result::Success;
