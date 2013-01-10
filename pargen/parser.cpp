@@ -27,7 +27,7 @@
 
 // Parsing trace, should be always enabled.
 // Enabled/disabled by parsing_state->debug_dump flag.
-#define DEBUG_PAR(a) ;
+#define DEBUG_PAR(a) a
 
 #define DEBUG(a) ;
 // Flow
@@ -438,6 +438,17 @@ public:
     }
 };
 
+class VStackContainer : public StReferenced
+{
+public:
+    VStack vstack;
+
+    VStackContainer (Size const block_size)
+        : vstack (block_size)
+    {
+    }
+};
+
 // State of the parser.
 class ParsingState : public ParserControl
 {
@@ -481,7 +492,7 @@ public:
     // User data for accept_func() and match_func().
     void *user_data;
 
-    // FIXME Temporarily persistent
+    StRef<VStackContainer> el_vstack_container;
     VStack *el_vstack;
 
     // Stack of grammar invocations.
@@ -546,10 +557,11 @@ public:
   mt_iface_end
 
     ParsingState ()
-        : el_vstack (new (std::nothrow) VStack (1 << 16 /* block_size */)),
-          step_vstack (1 << 16 /* block_size */)
+        : step_vstack (1 << 16 /* block_size */)
     {
-        assert (el_vstack);
+        el_vstack_container = st_grab (new (std::nothrow) VStackContainer (1 << 16 /* block_size */));
+        assert (el_vstack_container);
+        el_vstack = &el_vstack_container->vstack;
 
         DEBUG_VSTACK (
             errs->println (_func,
@@ -741,9 +753,9 @@ pop_step (ParsingState *parsing_state,
     DEBUG_PAR (
 	if (parsing_state->debug_dump) {
 	    if (match)
-		errs->print ("+");
+		errs->print (ConstMemory ("+"));
 	    else
-		errs->print (" ");
+		errs->print (ConstMemory (" "));
 
 	    print_tab (errs, parsing_state->nest_level);
 
@@ -774,7 +786,7 @@ pop_step (ParsingState *parsing_state,
 	    else
 		errs->print (" <");
 
-            errs->println ("");
+            errs->println (ConstMemory (""));
 	}
     );
 
@@ -2716,14 +2728,18 @@ parse (TokenStream    * const mt_nonnull token_stream,
        void           * const user_data,
        Grammar        * const mt_nonnull grammar,
        ParserElement ** const ret_element,
+       StRef<StReferenced> * const ret_element_container,
        ConstMemory      const default_variant,
        ParserConfig   *parser_config,
        bool             const debug_dump)
 {
     assert (token_stream && grammar);
 
-    if (ret_element != NULL)
+    if (ret_element)
 	*ret_element = NULL;
+
+    if (ret_element_container)
+        *ret_element_container = NULL;
 
     StRef<ParserConfig> tmp_parser_config;
     if (parser_config == NULL) {
@@ -2755,6 +2771,9 @@ parse (TokenStream    * const mt_nonnull token_stream,
     ParsingResult pres;
     if (!parse_grammar (parsing_state, grammar, acceptor, false /* optional */, &pres))
         return Result::Failure;
+
+    if (ret_element_container)
+        *ret_element_container = parsing_state->el_vstack_container;
 
     if (pres == ParseNonemptyMatch ||
 	pres == ParseEmptyMatch    ||

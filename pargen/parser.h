@@ -74,13 +74,14 @@ StRef<ParserConfig> createDefaultParserConfig ();
 void optimizeGrammar (Grammar * mt_nonnull grammar);
 
 /*m*/
-#warning TODO explicit error report
-#warning TODO handle return value
+//#warning TODO explicit error report
+//#warning TODO handle return value
 mt_throws Result parse (TokenStream    * mt_nonnull token_stream,
                         LookupData     *lookup_data,
                         void           *user_data,
                         Grammar        * mt_nonnull grammar,
                         ParserElement **ret_element,
+                        StRef<StReferenced> *ret_element_container,
                         ConstMemory     default_variant = ConstMemory ("default"),
                         ParserConfig   *parser_config = NULL,
                         bool            debug_dump = false);
