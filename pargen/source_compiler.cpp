@@ -527,14 +527,14 @@ compileSource_Phrase (File                     * const mt_nonnull file,
 
 		    if (phrase_part->seq) {
 			if (!file->print ("    {\n"
-                                          "        List<", opts->capital_header_name, "_",
+                                          "        IntrusiveList<", opts->capital_header_name, "_",
                                                          phrase_part__phrase->decl_phrases->declaration_name,
-                                                         "*>::DataIterator sub_iter (el->",
+                                                         ">::iterator sub_iter (el->",
                                                          phrase_part__phrase->name, "s);\n"
                                           "        while (!sub_iter.done ()) {\n"
                                           "            ", opts->capital_header_name, "_",
                                                                phrase_part__phrase->decl_phrases->declaration_name,
-                                                               " *&sub = sub_iter.next ();\n"
+                                                               " * const sub = sub_iter.next ();\n"
                                           "            dump_", opts->header_name, "_",
                                                                phrase_part__phrase->decl_phrases->declaration_name,
                                                                " (sub, ", (global_grammar ? ConstMemory ("1") : ConstMemory ("nest_level + 1")), ");\n"

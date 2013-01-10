@@ -114,8 +114,8 @@ compileHeader_Phrase (File                                    * const mt_nonnull
 
 		if (phrase_part__phrase->seq) {
 		    if (!initializers_mode) {
-                        if (!file->print ("    M::List<", opts->capital_header_name, "_",
-                                          phrase_part__phrase->decl_phrases->declaration_name, "*> ",
+                        if (!file->print ("    M::IntrusiveList<", opts->capital_header_name, "_",
+                                          phrase_part__phrase->decl_phrases->declaration_name, "> ",
                                           phrase_part__phrase->name, "s;\n"))
                         {
                             return Result::Failure;
@@ -172,7 +172,6 @@ compileHeader_Phrase (File                                    * const mt_nonnull
     return Result::Success;
 }
 
-#warning handle return value
 mt_throws Result
 compileHeader (File                     * const mt_nonnull file,
 	       PargenTask         const * const mt_nonnull pargen_task,
@@ -192,7 +191,7 @@ compileHeader (File                     * const mt_nonnull file,
                       "\n"
                       "namespace ", opts->capital_namespace_name, " {\n"
                       "\n"
-                      "class ", opts->capital_header_name, "Element : public Pargen::ParserElement\n"
+                      "class ", opts->capital_header_name, "Element : public Pargen::ParserElement, public M::IntrusiveListElement<>\n"
                       "{\n"
                       "public:\n"
                       "    enum Type {"))
