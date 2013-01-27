@@ -49,7 +49,6 @@ private:
 
 public:
   mt_iface (TokenStream)
-
     mt_throws Result getNextToken (ConstMemory *ret_mem);
 
     mt_throws Result getPosition (PositionMarker * mt_nonnull ret_pmark);
@@ -64,13 +63,12 @@ public:
     Ref<String> getLineStr ()
 		     throw (InternalException);
 #endif
-
   mt_iface_end
 
-    FileTokenStream (File   * mt_nonnull file,
-		     bool    report_newlines = false,
-                     bool    minus_is_alpha  = false,
-                     Uint64  max_token_len = 4096);
+    FileTokenStream (File * mt_nonnull file,
+		     bool  report_newlines = false,
+                     bool  minus_is_alpha  = false,
+                     Size  max_token_len = 4096);
 
     ~FileTokenStream ();
 };
