@@ -206,7 +206,7 @@ MemoryTokenStream::getNextToken (ConstMemory * const ret_mem)
             ++pos;
             for (; pos < pos_end; ++pos) {
                 c = buf [pos];
-                if (!((c >= '0' && c <= '0') ||
+                if (!((c >= '0' && c <= '9') ||
                       (c >= 'a' && c <= 'z') ||
                       (c >= 'A' && c <= 'Z') ||
                       c == '_' ||

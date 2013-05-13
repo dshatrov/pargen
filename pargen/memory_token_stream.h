@@ -49,15 +49,10 @@ private:
 
 public:
   mt_iface (TokenStream)
-
-    mt_throws Result getNextToken (ConstMemory *ret_mem);
-
-    mt_throws Result getPosition (PositionMarker * mt_nonnull ret_pmark);
-
-    mt_throws Result setPosition (PositionMarker const *pmark);
-
+    mt_throws Result getNextToken    (ConstMemory *ret_mem);
+    mt_throws Result getPosition     (PositionMarker * mt_nonnull ret_pmark);
+    mt_throws Result setPosition     (PositionMarker const *pmark);
     mt_throws Result getFilePosition (FilePosition *ret_fpos);
-
   mt_iface_end
 
     void init (ConstMemory mem,
@@ -66,8 +61,7 @@ public:
                bool        minus_is_alpha  = false,
                Uint64      max_token_len   = 4096);
 
-    MemoryTokenStream ();
-
+     MemoryTokenStream ();
     ~MemoryTokenStream ();
 };
 
